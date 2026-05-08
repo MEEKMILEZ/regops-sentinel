@@ -1,0 +1,3 @@
+random_suffix = "1a8df723"
+tflock_table_name = "regops-sentinel-tflock-1a8df723"
+tfstate_bucket_name = "regops-sentinel-tfstate-1a8df723"
