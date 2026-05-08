@@ -1,5 +1,5 @@
 resource "aws_kms_key" "main" {
-  description             = "RegOps Sentinel customer-managed key for RDS and Secrets Manager"
+  description             = "RegOps Sentinel customer-managed key"
   deletion_window_in_days = 30
   enable_key_rotation     = true
 
@@ -7,19 +7,23 @@ resource "aws_kms_key" "main" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "EnableRootPermissions"
-        Effect = "Allow"
-        Principal = {
-          AWS = "arn:aws:iam::575751781190:root"
-        }
-        Action   = "kms:*"
-        Resource = "*"
+        Sid       = "EnableRootPermissions"
+        Effect    = "Allow"
+        Principal = { AWS = "arn:aws:iam::575751781190:root" }
+        Action    = "kms:*"
+        Resource  = "*"
       },
       {
-        Sid    = "AllowRDSUseOfTheKey"
-        Effect = "Allow"
+        Sid       = "AllowAWSServicesUseOfTheKey"
+        Effect    = "Allow"
         Principal = {
-          Service = "rds.amazonaws.com"
+          Service = [
+            "rds.amazonaws.com",
+            "secretsmanager.amazonaws.com",
+            "sqs.amazonaws.com",
+            "dynamodb.amazonaws.com",
+            "logs.ca-central-1.amazonaws.com"
+          ]
         }
         Action = [
           "kms:Encrypt",
@@ -28,21 +32,6 @@ resource "aws_kms_key" "main" {
           "kms:GenerateDataKey*",
           "kms:DescribeKey",
           "kms:CreateGrant"
-        ]
-        Resource = "*"
-      },
-      {
-        Sid    = "AllowSecretsManagerUseOfTheKey"
-        Effect = "Allow"
-        Principal = {
-          Service = "secretsmanager.amazonaws.com"
-        }
-        Action = [
-          "kms:Encrypt",
-          "kms:Decrypt",
-          "kms:ReEncrypt*",
-          "kms:GenerateDataKey*",
-          "kms:DescribeKey"
         ]
         Resource = "*"
       }

@@ -74,3 +74,26 @@ output "cognito_user_pool_arn" {
 output "cognito_user_pool_client_id" {
   value = aws_cognito_user_pool_client.web.id
 }
+output "sqs_ingestion_url" {
+  value = aws_sqs_queue.ingestion.url
+}
+
+output "sqs_ingestion_arn" {
+  value = aws_sqs_queue.ingestion.arn
+}
+
+output "watcher_state_table" {
+  value = aws_dynamodb_table.watcher_state.name
+}
+
+output "watcher_recalls_arn" {
+  value = aws_lambda_function.watcher_recalls.arn
+}
+
+output "watcher_medeffect_arn" {
+  value = aws_lambda_function.watcher_medeffect.arn
+}
+
+output "watcher_shortages_arn" {
+  value = aws_lambda_function.watcher_shortages.arn
+}
