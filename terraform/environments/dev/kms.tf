@@ -14,8 +14,8 @@ resource "aws_kms_key" "main" {
         Resource  = "*"
       },
       {
-        Sid       = "AllowAWSServicesUseOfTheKey"
-        Effect    = "Allow"
+        Sid    = "AllowAWSServicesUseOfTheKey"
+        Effect = "Allow"
         Principal = {
           Service = [
             "rds.amazonaws.com",

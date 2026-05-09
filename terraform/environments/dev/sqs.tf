@@ -10,7 +10,7 @@ resource "aws_sqs_queue" "ingestion_dlq" {
 }
 
 resource "aws_sqs_queue" "ingestion" {
-  name                      = "${local.name_prefix}-ingestion-${local.full_suffix}"
+  name                       = "${local.name_prefix}-ingestion-${local.full_suffix}"
   visibility_timeout_seconds = 300
   message_retention_seconds  = 345600
   kms_master_key_id          = aws_kms_key.main.arn

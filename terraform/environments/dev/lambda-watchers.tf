@@ -32,8 +32,8 @@ resource "aws_iam_role_policy" "watcher_lambda" {
         Resource = "arn:aws:logs:ca-central-1:575751781190:*"
       },
       {
-        Effect = "Allow"
-        Action = ["sqs:SendMessage"]
+        Effect   = "Allow"
+        Action   = ["sqs:SendMessage"]
         Resource = aws_sqs_queue.ingestion.arn
       },
       {
@@ -46,8 +46,8 @@ resource "aws_iam_role_policy" "watcher_lambda" {
         Resource = aws_dynamodb_table.watcher_state.arn
       },
       {
-        Effect = "Allow"
-        Action = ["secretsmanager:GetSecretValue"]
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
         Resource = data.aws_secretsmanager_secret.hpsc_creds.arn
       },
       {

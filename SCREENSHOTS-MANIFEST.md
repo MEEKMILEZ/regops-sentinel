@@ -12,6 +12,7 @@
 3. When Claude says "capture screenshot NN now," refer to this manifest for the exact filename and what to frame.
 4. A phase is not complete until all its screenshots are saved.
 5. New screenshots only added after explicit discussion, given the next sequential number, and documented here first.
+6. Description amendments to existing rows require explicit discussion and must be logged in the "Manifest amendments" section at the bottom.
 
 ## Phase 0: Foundation Setup (5)
 
@@ -58,7 +59,7 @@
 | 24 | 24-azure-openai-integration.png | Azure Portal > OpenAI resource > recent API calls in metrics panel | After Brain processes first message |
 | 25 | 25-app-classification-result.png | PowerShell with JSON classification result from GPT-4o for real Health Canada update | First successful classification |
 | 26 | 26-aws-rds-data-populated.png | pgAdmin or DBeaver showing alerts table populated with tenant_id visible | After several alerts processed |
-| 27 | 27-aws-s3-audit-blob.png | AWS Console > S3 > audit container with JSON blobs, Object Lock enabled | After multiple classifications |
+| 27 | 27-aws-s3-audit-blob.png | AWS Console > S3 > audit bucket with JSON classification objects, Versioning enabled and SSE-KMS encryption visible | After multiple classifications |
 | 28 | 28-aws-ecs-brain-cloudwatch-logs.png | CloudWatch logs for Brain showing full processing cycle | After Brain has been running |
 
 ## Phase 4: The Window (10)
@@ -122,3 +123,18 @@
 | 7: End-to-End Demo | 2 | 47-48 |
 | 8: Repo and CI/CD | 2 | 49-50 |
 | Total | 50 | 01-50 |
+
+## Manifest amendments
+
+Description-only changes to existing rows. Filenames and capture order remain locked.
+
+| Date | Row | Change | Reason |
+|---|---|---|---|
+| 2026-05-09 | 27 | Description changed from "audit container with JSON blobs, Object Lock enabled" to "audit bucket with JSON classification objects, Versioning enabled and SSE-KMS encryption visible" | Audit bucket was created without `object_lock_enabled` flag at bucket creation; enabling Object Lock retroactively requires either bucket recreation (destroys existing audit records) or a CLI side-call + Terraform reconcile. Object Lock deferred to Phase 5 (Security Hardening) where it belongs as part of the bucket hardening sprint. Current bucket has Versioning + SSE-KMS + Public Access Block + Lifecycle to Glacier — strong v1 posture without Object Lock. |
+
+## Phase 5 pending work (audit bucket hardening)
+
+Items deferred from earlier phases to be addressed during Phase 5 Security Hardening sprint. These do not get their own manifest screenshots unless explicitly added; they are work items folded into existing Phase 5 deliverables.
+
+- **Audit bucket Object Lock** — enable retroactively via `aws s3api put-object-lock-configuration` with `ObjectLockEnabled=Enabled` and `Rule.DefaultRetention` set (Governance or Compliance mode, retention period TBD per regulatory horizon). Reconcile in Terraform by setting `object_lock_enabled = true` on `aws_s3_bucket.audit` and adding `aws_s3_bucket_object_lock_configuration` resource. Verify the change is plan-clean (in-place update, not bucket recreation) before applying.
+- **Audit bucket `force_destroy` flag** — flip from `true` to `false` (or remove the line; `false` is the default). The current `force_destroy = true` lets `terraform destroy` wipe the bucket and its objects in one shot, which contradicts the immutable audit narrative. Acceptable in dev iteration; not acceptable for the final hardened state.

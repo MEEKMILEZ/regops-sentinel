@@ -97,3 +97,35 @@ output "watcher_medeffect_arn" {
 output "watcher_shortages_arn" {
   value = aws_lambda_function.watcher_shortages.arn
 }
+output "ecr_repo_brain_url" {
+  value = aws_ecr_repository.brain.repository_url
+}
+
+output "ecs_cluster_name" {
+  value = aws_ecs_cluster.main.name
+}
+
+output "ecs_service_brain_name" {
+  value = aws_ecs_service.brain.name
+}
+
+output "alb_brain_dns" {
+  value = aws_lb.brain.dns_name
+}
+
+output "audit_bucket_name" {
+  value = aws_s3_bucket.audit.id
+}
+
+output "azure_openai_secret_arn" {
+  value     = data.aws_secretsmanager_secret.azure_openai.arn
+  sensitive = true
+}
+
+output "codebuild_brain_project" {
+  value = aws_codebuild_project.brain.name
+}
+
+output "codebuild_artifacts_bucket" {
+  value = aws_s3_bucket.codebuild_artifacts.id
+}
