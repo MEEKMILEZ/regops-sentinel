@@ -22,28 +22,28 @@ The system runs on AWS in `ca-central-1` for Canadian data residency, with Azure
 
 ```
 Health Canada feeds (3 sources)
-        │
-        ▼
+        |
+        v
 EventBridge (30-min schedule)
-        │
-        ▼
+        |
+        v
 Lambda watchers (recalls, shortages, medeffect)
-        │
-        ▼
-SQS ingestion queue ─────────► DLQ
-        │
-        ▼
+        |
+        v
+SQS ingestion queue ----------> DLQ
+        |
+        v
 Brain (FastAPI on ECS Fargate)
-   ├── Azure OpenAI (GPT-4o classification)
-   ├── RDS Postgres Multi-AZ (alerts table, tenant-scoped)
-   └── S3 audit bucket (immutable JSON blobs, KMS-encrypted)
-        │
-        ▼
+   |-- Azure OpenAI (GPT-4o classification)
+   |-- RDS Postgres Multi-AZ (alerts table, tenant-scoped)
+   +-- S3 audit bucket (immutable JSON blobs, KMS-encrypted)
+        |
+        v
 ALB (internet-facing for Brain API)
-   ├── /classify     manual classification
-   ├── /alerts       tenant-scoped alert query
-   ├── /health       liveness
-   └── /health/db    DB connectivity check
+   |-- /classify     manual classification
+   |-- /alerts       tenant-scoped alert query
+   |-- /health       liveness
+   +-- /health/db    DB connectivity check
 ```
 
 A formal architecture diagram is planned for Phase 8.
@@ -121,27 +121,27 @@ Each is a focused writeup in `docs/troubleshooting/`:
 
 ```
 .
-├── README.md                          (this file)
-├── SCREENSHOTS-MANIFEST.md            50-screenshot capture plan
-├── app/
-│   └── brain/                         FastAPI Brain service
-│       ├── Dockerfile
-│       ├── buildspec.yml
-│       ├── requirements.txt
-│       └── src/
-│           ├── classifier.py          Azure OpenAI integration
-│           ├── config.py              Config + secret loading
-│           ├── db.py                  RDS connection + schema
-│           ├── main.py                FastAPI app + endpoints
-│           └── worker.py              SQS poll loop
-├── docs/
-│   ├── architecture/                  (placeholder for Phase 8 diagrams)
-│   ├── runbooks/                      (placeholder for ops runbooks)
-│   └── troubleshooting/               numbered writeups (04, 05, 06, 07)
-├── screenshots/                       28 of 50 captured
-└── terraform/
-    └── environments/
-        └── dev/                       all dev infrastructure
+|-- README.md                          (this file)
+|-- SCREENSHOTS-MANIFEST.md            50-screenshot capture plan
+|-- app/
+|   +-- brain/                         FastAPI Brain service
+|       |-- Dockerfile
+|       |-- buildspec.yml
+|       |-- requirements.txt
+|       +-- src/
+|           |-- classifier.py          Azure OpenAI integration
+|           |-- config.py              Config + secret loading
+|           |-- db.py                  RDS connection + schema
+|           |-- main.py                FastAPI app + endpoints
+|           +-- worker.py              SQS poll loop
+|-- docs/
+|   |-- architecture/                  (placeholder for Phase 8 diagrams)
+|   |-- runbooks/                      (placeholder for ops runbooks)
+|   +-- troubleshooting/               numbered writeups (04, 05, 06, 07)
+|-- screenshots/                       28 of 50 captured
++-- terraform/
+    +-- environments/
+        +-- dev/                       all dev infrastructure
 ```
 
 ## Working with the repo
