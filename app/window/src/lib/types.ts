@@ -1,0 +1,57 @@
+// Shared alert types.
+//
+// The shape mirrors what the Brain /alerts endpoint returns (with
+// psycopg dict_row rows). Keep this file as the single source of truth -
+// the placeholder dataset, the BFF, and the page components all import
+// from here so a schema change ripples through type-checking.
+
+export type Classification = "RELEVANT" | "NEEDS_REVIEW" | "NOT_RELEVANT"
+export type Urgency = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"
+
+// The list endpoint returns a trimmed projection of the Alert row.
+// The detail endpoint returns the full Alert row.
+export interface AlertListItem {
+  alert_id: string
+  tenant_id: string
+  source: string
+  external_id: string
+  title: string
+  classification: Classification
+  urgency: Urgency
+  relevance_score: number | null
+  product_categories: string[] | null
+  classified_at: string // ISO 8601 from Postgres
+}
+
+export interface AlertDetail extends AlertListItem {
+  // Detail rows include everything in the alerts table. Optional fields
+  // because not every alert has every column populated.
+  body?: string | null
+  source_url?: string | null
+  reasoning?: string | null
+  audit_path?: string | null
+  audit_version_id?: string | null
+  kms_key_alias?: string | null
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export interface AlertsListResponse {
+  tenant_id: string
+  count: number
+  alerts: AlertListItem[]
+}
+
+// Error envelope returned by the BFF when something goes wrong.
+// Frontend code can switch on `error` to render a useful message.
+export interface BffError {
+  error:
+    | "unauthenticated"
+    | "upstream_unauthorized"
+    | "not_found"
+    | "upstream_unreachable"
+    | "upstream_error"
+    | "internal_error"
+  status: number
+  details?: string
+}
