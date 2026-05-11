@@ -1,16 +1,17 @@
-"""FastAPI app exposing health checks and a manual classification endpoint.
+"""FastAPI app exposing health checks, classification, and alerts.
 The SQS worker runs in a background thread."""
 import logging
 import os
 import threading
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
+from psycopg.rows import dict_row
 from pydantic import BaseModel
-from .config import LOG_LEVEL
+from .auth import CurrentUser, current_user
+from .config import LOG_LEVEL, get_azure_openai_credentials
 from .db import init_schema, get_connection
-from .worker import poll_loop, process_message
+from .worker import poll_loop
 from .classifier import classify
-from .config import get_azure_openai_credentials
 
 logging.basicConfig(
     level=LOG_LEVEL,
@@ -38,7 +39,14 @@ async def lifespan(app: FastAPI):
     logger.info("Brain shutting down")
 
 
-app = FastAPI(title="RegOps Sentinel Brain", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="RegOps Sentinel Brain", version="0.2.0", lifespan=lifespan)
+
+
+# CORS note: we do NOT add CORSMiddleware here. The Window app calls this
+# service through its server-side BFF route handlers (Next.js -> Brain over
+# the AWS network), not directly from the browser, so browsers never see
+# cross-origin requests to the Brain. Adding CORS would only widen the
+# attack surface.
 
 
 class ClassifyRequest(BaseModel):
@@ -71,7 +79,9 @@ def health_db():
 @app.post("/classify")
 def classify_endpoint(req: ClassifyRequest):
     try:
-        deployment_name = get_azure_openai_credentials().get("deployment_name", "gpt-4o-regops")
+        deployment_name = get_azure_openai_credentials().get(
+            "deployment_name", "gpt-4o-regops"
+        )
         result = classify(req.model_dump(), deployment_name)
         return result
     except Exception as e:
@@ -79,11 +89,24 @@ def classify_endpoint(req: ClassifyRequest):
 
 
 @app.get("/alerts")
-def list_alerts(tenant_id: str = "tenant-acme-meddev", limit: int = 50):
+def list_alerts(
+    user: CurrentUser = Depends(current_user),
+    limit: int = 50,
+):
+    """List alerts for the caller's tenant.
+
+    tenant_id comes from the verified ID token's custom:tenant_id claim.
+    A user holding a token for tenant A cannot see tenant B's alerts even
+    by passing a different tenant_id - there is no such query parameter.
+    """
     try:
+        # dict_row returns each row as a dict keyed by column name, so the
+        # JSON response uses real field names instead of position-ordered
+        # tuples. Easier for the BFF to consume and self-documenting.
         with get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    """
                     SELECT alert_id, tenant_id, source, external_id, title,
                            classification, urgency, relevance_score,
                            product_categories, classified_at
@@ -91,8 +114,55 @@ def list_alerts(tenant_id: str = "tenant-acme-meddev", limit: int = 50):
                     WHERE tenant_id = %s
                     ORDER BY classified_at DESC
                     LIMIT %s
-                """, (tenant_id, limit))
+                    """,
+                    (user.tenant_id, limit),
+                )
                 rows = cur.fetchall()
-        return {"tenant_id": tenant_id, "count": len(rows), "alerts": rows}
+        return {
+            "tenant_id": user.tenant_id,
+            "count": len(rows),
+            "alerts": rows,
+        }
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.exception("list_alerts failed for tenant %s", user.tenant_id)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/alerts/{alert_id}")
+def get_alert(
+    alert_id: str,
+    user: CurrentUser = Depends(current_user),
+):
+    """Fetch a single alert by id, scoped to the caller's tenant.
+
+    A cross-tenant lookup (user from tenant A asking for tenant B's alert)
+    returns 404, not 403 - we do not even confirm the alert exists for
+    another tenant. This is the standard 'unguessable response' pattern.
+    """
+    try:
+        with get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    """
+                    SELECT *
+                    FROM alerts
+                    WHERE alert_id = %s AND tenant_id = %s
+                    LIMIT 1
+                    """,
+                    (alert_id, user.tenant_id),
+                )
+                row = cur.fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="alert_not_found")
+        return row
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(
+            "get_alert failed for tenant %s, alert %s",
+            user.tenant_id,
+            alert_id,
+        )
         raise HTTPException(status_code=500, detail=str(e))
