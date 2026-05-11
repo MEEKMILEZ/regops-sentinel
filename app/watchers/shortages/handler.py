@@ -113,17 +113,95 @@ def update_last_seen_id(max_id):
         logger.error(f"Could not update last_seen_max_id: {e}")
 
 
+def _safe_dict(value):
+    """Return a dict if value is one, otherwise an empty dict.
+    HPSC sometimes returns nulls or strings where dicts are expected;
+    this keeps normalize() defensive without nested isinstance checks.
+    """
+    return value if isinstance(value, dict) else {}
+
+
 def normalize(report):
+    """Map a raw HPSC report object to the normalized envelope SQS expects.
+
+    Field map for HPSC shortage records (verified via API inspection on
+    May 11 2026; see Phase 4 Stage E.5c notes):
+
+    - en_drug_brand_name -> "APO-ACYCLOVIR - TAB 400MG"      (best title)
+    - drug.brand_name    -> "APO-ACYCLOVIR"                  (fallback)
+    - en_drug_common_name -> "ACYCLOVIR"                     (last resort)
+    - company_name OR drug.company.name -> "APOTEX INC"
+    - type is a dict {id, label}; classifier expects label as string
+    - shortage_reason is a dict {id, en_reason, ...}
+    - tier_3 boolean: critical-impact shortages per Health Canada
+      categorisation
+    - status: "active" / "resolved" / "anticipated"
+    - drug_strength, drug_dosage_form, drug_route: classifier signal
+    - actual_start_date / actual_end_date / estimated_end_date: timeline
+      context
+
+    Returns the envelope downstream worker.process_message expects, with
+    the full original report preserved under `raw` for audit blobs and
+    later re-classification (e.g. via the backfill module).
+    """
     report_id = report.get("id") or report.get("report_id")
+
+    drug = _safe_dict(report.get("drug"))
+    company = _safe_dict(drug.get("company"))
+    type_obj = _safe_dict(report.get("type"))
+    shortage_reason = _safe_dict(report.get("shortage_reason"))
+
+    # Title prefers the most descriptive HPSC field, falling through to
+    # progressively simpler ones if the upstream response is sparse.
+    title = (
+        report.get("en_drug_brand_name")
+        or drug.get("brand_name")
+        or report.get("en_drug_common_name")
+        or ""
+    )
+
+    company_name = report.get("company_name") or company.get("name") or ""
+
+    # Build a summary string from whatever signal is available. The
+    # classifier reads this; richer summary text -> better classification.
+    summary_parts = []
+    if report.get("en_drug_common_name"):
+        summary_parts.append(f"Active ingredient: {report['en_drug_common_name']}")
+    if report.get("drug_strength"):
+        summary_parts.append(f"Strength: {report['drug_strength']}")
+    if report.get("drug_dosage_form"):
+        summary_parts.append(f"Dosage form: {report['drug_dosage_form']}")
+    if report.get("drug_route"):
+        summary_parts.append(f"Route: {report['drug_route']}")
+    if report.get("status"):
+        summary_parts.append(f"Status: {report['status']}")
+    if shortage_reason.get("en_reason"):
+        summary_parts.append(f"Reason: {shortage_reason['en_reason']}")
+    if report.get("tier_3"):
+        summary_parts.append("TIER 3 (critical impact)")
+
+    summary = " | ".join(summary_parts)
+
     return {
         "source": "health-canada-shortages",
         "external_id": str(report_id),
-        "title": report.get("brand_name", ""),
-        "company_name": report.get("company_name", ""),
+        "title": title,
+        "summary": summary,
+        # Type label as a string (the classifier prompt expects strings,
+        # not the {id, label} dict shape HPSC returns).
+        "type": type_obj.get("label", ""),
         "status": report.get("status", ""),
-        "type": report.get("type", ""),
-        "strength": report.get("strength", ""),
+        "tier_3": bool(report.get("tier_3", False)),
+        "company_name": company_name,
+        "common_name": report.get("en_drug_common_name", ""),
+        "strength": report.get("drug_strength", ""),
+        "dosage_form": report.get("drug_dosage_form", ""),
+        "route": report.get("drug_route", ""),
+        "shortage_reason": shortage_reason.get("en_reason", ""),
         "din": report.get("din", ""),
+        "actual_start_date": report.get("actual_start_date", ""),
+        "actual_end_date": report.get("actual_end_date", ""),
+        "estimated_end_date": report.get("estimated_end_date", ""),
         "updated_date": report.get("updated_date", ""),
         "raw": report,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
