@@ -173,3 +173,104 @@ export function timeAgo(iso: string, now: Date = new Date()): string {
   const days = Math.round(hours / 24)
   return `${days}d ago`
 }
+
+/** Shared classification badge mapping. Used by every component that
+ * renders an alert summary so HIGH PRIORITY in one place is HIGH
+ * PRIORITY everywhere; if the mapping ever needs to change it changes
+ * here and everywhere else inherits.
+ *
+ * Map of (classification, urgency) -> {variant, label}:
+ *   - RELEVANT + HIGH    -> destructive "HIGH PRIORITY"
+ *   - RELEVANT + other   -> secondary   "REVIEW"
+ *   - NEEDS_REVIEW       -> secondary   "NEEDS REVIEW"
+ *   - NOT_RELEVANT       -> outline     "FILTERED"
+ *   - everything else    -> secondary   (raw classification as label)
+ */
+export interface BadgeStyle {
+  variant: "destructive" | "secondary" | "outline"
+  label: string
+}
+
+export function badgeForAlert(row: AlertListItem): BadgeStyle {
+  if (row.classification === "RELEVANT" && row.urgency === "HIGH") {
+    return { variant: "destructive", label: "HIGH PRIORITY" }
+  }
+  if (row.classification === "RELEVANT") {
+    return { variant: "secondary", label: "REVIEW" }
+  }
+  if (row.classification === "NEEDS_REVIEW") {
+    return { variant: "secondary", label: "NEEDS REVIEW" }
+  }
+  if (row.classification === "NOT_RELEVANT") {
+    return { variant: "outline", label: "FILTERED" }
+  }
+  return { variant: "secondary", label: row.classification }
+}
+
+/** Format a UTC ISO timestamp as a "yyyy-mm-dd HH:MM UTC" string for
+ * table cells. Stable, sort-friendly, timezone-agnostic. */
+export function formatClassifiedAt(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ""
+  return d.toISOString().replace("T", " ").slice(0, 16) + " UTC"
+}
+
+/** Tone class for urgency text in tables. HIGH is the only urgency the
+ * classifier currently emits at the high end; MEDIUM/LOW render muted
+ * because they're not action-triggering. */
+export function urgencyToneClass(urgency: string): string {
+  switch (urgency) {
+    case "CRITICAL":
+      return "text-red-600 dark:text-red-400 font-medium"
+    case "HIGH":
+      return "text-red-600 dark:text-red-400 font-medium"
+    case "MEDIUM":
+      return "text-amber-600 dark:text-amber-400"
+    case "LOW":
+      return "text-muted-foreground"
+    default:
+      return "text-muted-foreground"
+  }
+}
+
+/** Decode the small set of HTML entities that Health Canada's APIs
+ * actually emit in description fields ("&nbsp;", "&amp;", etc.). The
+ * upstream returns body text with raw HTML entities embedded; we want
+ * to render those as plain text without exposing the raw `&nbsp;`
+ * strings to a regulatory analyst reading the detail page.
+ *
+ * Intentionally not a full HTML parser. We only handle the entities
+ * we've actually seen in the data; anything else passes through
+ * unchanged. That keeps the surface area small and predictable.
+ */
+const HTML_ENTITIES: Record<string, string> = {
+  "&nbsp;": " ",
+  "&amp;": "&",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&apos;": "'",
+  "&#39;": "'",
+  "&#34;": '"',
+  "&#x27;": "'",
+  "&hellip;": "…",
+  "&mdash;": "—",
+  "&ndash;": "–",
+  "&rsquo;": "\u2019",
+  "&lsquo;": "\u2018",
+  "&rdquo;": "\u201D",
+  "&ldquo;": "\u201C",
+}
+
+export function cleanBody(input: string | null | undefined): string {
+  if (!input) return ""
+  let out = input
+  for (const [entity, replacement] of Object.entries(HTML_ENTITIES)) {
+    out = out.split(entity).join(replacement)
+  }
+  // Collapse runs of three-or-more newlines down to two so paragraph
+  // breaks render cleanly without huge gaps when Health Canada's HTML
+  // had a lot of whitespace.
+  out = out.replace(/\n{3,}/g, "\n\n")
+  return out.trim()
+}

@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
-import { ArrowLeft, ExternalLink, ShieldCheck } from "lucide-react"
+import { ArrowLeft, ExternalLink } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import {
@@ -13,39 +13,24 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
 
-import type { Classification, Urgency } from "@/lib/placeholder-alerts"
-import { getAlertById } from "@/lib/placeholder-alerts"
+import { proxyToBrain } from "@/lib/bff"
+import {
+  badgeForAlert,
+  cleanBody,
+  formatClassifiedAt,
+  humanSource,
+  urgencyToneClass,
+} from "@/lib/dashboard-stats"
 
-function classificationBadgeVariant(
-  c: Classification,
-): "default" | "destructive" | "secondary" | "outline" {
-  switch (c) {
-    case "RELEVANT":
-      return "default"
-    case "NEEDS_REVIEW":
-      return "secondary"
-    case "NOT_RELEVANT":
-      return "outline"
-  }
-}
+import type { AlertDetail } from "@/lib/types"
 
-function urgencyToneClass(u: Urgency): string {
-  switch (u) {
-    case "CRITICAL":
-      return "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300"
-    case "HIGH":
-      return "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
-    case "MEDIUM":
-      return "bg-muted text-muted-foreground"
-    case "LOW":
-      return "bg-muted text-muted-foreground"
-  }
-}
+// Server component. Fetches one alert by id from the Brain through the
+// BFF helper (same auth path as Stage E.5/E.6/E.7). On not_found, render
+// the Next.js 404 page; on any other upstream failure, render an inline
+// error banner rather than crashing the route.
 
-function formatClassifiedAt(iso: string): string {
-  const d = new Date(iso)
-  return d.toISOString().replace("T", " ").slice(0, 19) + " UTC"
-}
+export const dynamic = "force-dynamic"
+export const revalidate = 0
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -53,10 +38,80 @@ interface PageProps {
 
 export default async function AlertDetailPage({ params }: PageProps) {
   const { id } = await params
-  const alert = getAlertById(id)
-  if (!alert) {
+
+  const result = await proxyToBrain<AlertDetail>(
+    `/alerts/${encodeURIComponent(id)}`,
+  )
+
+  if (!result.ok && result.error.error === "not_found") {
     notFound()
   }
+
+  // For any other error (upstream_unreachable, upstream_error, etc.),
+  // surface an inline banner instead of throwing. The page still
+  // renders the chrome (sidebar, back link) so the user has a way out.
+  if (!result.ok) {
+    return (
+      <div className="flex flex-col gap-6">
+        <div>
+          <Link
+            href="/alerts"
+            className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm"
+          >
+            <ArrowLeft className="size-3.5" />
+            Back to alerts
+          </Link>
+        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">
+              Could not load this alert
+            </CardTitle>
+            <CardDescription className="text-xs">
+              The upstream Brain returned an error.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="text-sm">
+            <p className="font-mono">
+              {result.error.error}
+              {result.error.details ? ` · ${result.error.details}` : ""}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  const alert = result.data
+
+  const badge = badgeForAlert({
+    alert_id: alert.alert_id,
+    tenant_id: alert.tenant_id,
+    source: alert.source,
+    external_id: alert.external_id,
+    title: alert.title,
+    classification: alert.classification,
+    urgency: alert.urgency,
+    relevance_score: alert.relevance_score,
+    product_categories: alert.product_categories,
+    classified_at: alert.classified_at,
+  })
+
+  // raw_payload is the original watcher envelope; its `summary` is the
+  // body text we received from Health Canada (often with HTML entities).
+  // The top-level `summary` field on the alert is the classifier's
+  // reasoning. Two different things, both useful, displayed in separate
+  // cards. cleanBody strips the small set of HTML entities the Health
+  // Canada APIs emit so the analyst sees plain text.
+  const rawPayload = (alert as AlertDetail & {
+    raw_payload?: Record<string, unknown>
+  }).raw_payload
+  const rawBody =
+    rawPayload && typeof rawPayload === "object" && "summary" in rawPayload
+      ? String(rawPayload.summary)
+      : alert.body ?? ""
+  const sourceBody = cleanBody(rawBody)
+  const sourceUrl = alert.source_url ?? alert.url ?? ""
 
   return (
     <div className="flex flex-col gap-6">
@@ -73,7 +128,7 @@ export default async function AlertDetailPage({ params }: PageProps) {
       <header className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
           <span className="text-muted-foreground font-mono text-xs">
-            {alert.externalId}
+            {alert.external_id}
           </span>
           <span
             className={cn(
@@ -83,14 +138,14 @@ export default async function AlertDetailPage({ params }: PageProps) {
           >
             {alert.urgency}
           </span>
-          <Badge variant={classificationBadgeVariant(alert.classification)}>
-            {alert.classification.replace("_", " ")}
-          </Badge>
+          <Badge variant={badge.variant}>{badge.label}</Badge>
         </div>
-        <h2 className="text-lg font-semibold">{alert.title}</h2>
+        <h2 className="text-lg font-semibold">
+          {alert.title || "(untitled)"}
+        </h2>
         <p className="text-muted-foreground text-sm">
-          {alert.source} · {alert.ago} · classified{" "}
-          {formatClassifiedAt(alert.classifiedAt)}
+          {humanSource(alert.source)} · classified{" "}
+          {formatClassifiedAt(alert.classified_at)}
         </p>
       </header>
 
@@ -103,105 +158,96 @@ export default async function AlertDetailPage({ params }: PageProps) {
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
-            <p className="text-sm leading-relaxed">{alert.body}</p>
+            {sourceBody ? (
+              <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                {sourceBody}
+              </p>
+            ) : (
+              <p className="text-muted-foreground text-sm italic">
+                No body text was captured by the watcher for this signal.
+              </p>
+            )}
             <Separator />
             <div>
               <p className="text-muted-foreground mb-1 text-xs font-medium">
                 Source URL
               </p>
-              <a
-                href={alert.sourceUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 break-all text-sm hover:underline"
-              >
-                {alert.sourceUrl}
-                <ExternalLink className="size-3" />
-              </a>
+              {sourceUrl ? (
+                <a
+                  href={sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 break-all text-sm hover:underline"
+                >
+                  {sourceUrl}
+                  <ExternalLink className="size-3" />
+                </a>
+              ) : (
+                <p className="text-muted-foreground text-sm italic">
+                  No source URL recorded.
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>
 
-        <div className="flex flex-col gap-3">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Classifier output</CardTitle>
-              <CardDescription className="text-xs">
-                Azure OpenAI gpt-4o-regops · single-pass
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3 text-sm">
-              <div>
-                <p className="text-muted-foreground text-xs">Classification</p>
-                <p className="font-medium">
-                  {alert.classification.replace("_", " ")}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Classifier output</CardTitle>
+            <CardDescription className="text-xs">
+              Azure OpenAI gpt-4o-regops · single-pass
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3 text-sm">
+            <div>
+              <p className="text-muted-foreground text-xs">Classification</p>
+              <p className="font-medium">
+                {alert.classification.replace("_", " ")}
+              </p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs">Relevance score</p>
+              <p className="font-medium tabular-nums">
+                {alert.relevance_score === null
+                  ? "—"
+                  : alert.relevance_score.toFixed(2)}
+              </p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs">Urgency</p>
+              <p className="font-medium">{alert.urgency}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs">
+                Product categories
+              </p>
+              {!alert.product_categories ||
+              alert.product_categories.length === 0 ? (
+                <p className="text-muted-foreground italic">none</p>
+              ) : (
+                <div className="flex flex-wrap gap-1">
+                  {alert.product_categories.map((c) => (
+                    <Badge key={c} variant="outline" className="font-mono">
+                      {c}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </div>
+            <Separator />
+            <div>
+              <p className="text-muted-foreground mb-1 text-xs">Reasoning</p>
+              {alert.summary ? (
+                <p className="text-sm leading-relaxed">{alert.summary}</p>
+              ) : (
+                <p className="text-muted-foreground text-sm italic">
+                  No reasoning recorded for this classification.
                 </p>
-              </div>
-              <div>
-                <p className="text-muted-foreground text-xs">Confidence</p>
-                <p className="font-medium tabular-nums">
-                  {alert.confidence.toFixed(2)}
-                </p>
-              </div>
-              <div>
-                <p className="text-muted-foreground text-xs">Urgency</p>
-                <p className="font-medium">{alert.urgency}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground text-xs">
-                  Product categories
-                </p>
-                {alert.categories.length === 0 ? (
-                  <p className="text-muted-foreground italic">none</p>
-                ) : (
-                  <div className="flex flex-wrap gap-1">
-                    {alert.categories.map((c) => (
-                      <Badge key={c} variant="outline" className="font-mono">
-                        {c}
-                      </Badge>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <Separator />
-              <div>
-                <p className="text-muted-foreground mb-1 text-xs">Reasoning</p>
-                <p className="text-sm leading-relaxed">{alert.reasoning}</p>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <ShieldCheck className="size-4" />
-                Audit record
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Immutable, KMS-encrypted, tenant-scoped prefix
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-2 text-xs">
-              <div>
-                <p className="text-muted-foreground">Storage path</p>
-                <p className="break-all font-mono">{alert.auditPath}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">S3 Version ID</p>
-                <p className="font-mono">{alert.auditVersionId}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">KMS key alias</p>
-                <p className="font-mono">{alert.kmsKeyAlias}</p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       </div>
-
-      <p className="text-muted-foreground text-center text-xs">
-        All values are placeholders until Stage E wires the BFF.
-      </p>
     </div>
   )
 }
