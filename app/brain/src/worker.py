@@ -5,7 +5,12 @@ import os
 import time
 import boto3
 from datetime import datetime, timezone
-from .config import SQS_QUEUE_URL, S3_AUDIT_BUCKET, get_azure_openai_credentials
+from .config import (
+    SQS_QUEUE_URL,
+    S3_AUDIT_BUCKET,
+    AUDIT_KMS_KEY_ARN,
+    get_azure_openai_credentials,
+)
 from .db import get_connection
 from .classifier import classify
 
@@ -18,6 +23,19 @@ DEFAULT_TENANT = "tenant-acme-meddev"
 
 
 def write_audit_blob(item: dict, classification: dict, tenant_id: str):
+    """Write the audit blob for one classification, explicitly encrypted
+    with the customer-managed KMS key.
+
+    Why we pass SSEKMSKeyId explicitly:
+    Boto3's put_object accepts ServerSideEncryption='aws:kms' without
+    SSEKMSKeyId, but in that case S3 falls back to the AWS-managed
+    'aws/s3' alias - not the bucket's default customer-managed key.
+    That fallback is silent and bypasses the bucket's encryption
+    policy. Passing SSEKMSKeyId here removes any ambiguity: the worker
+    declares which key it uses for every write. If the env var is
+    missing the worker fails to import (see config.py), which is the
+    correct fail-loud behaviour for a compliance-critical write path.
+    """
     timestamp = datetime.now(timezone.utc)
     key = (
         f"audit/{tenant_id}/"
@@ -35,7 +53,8 @@ def write_audit_blob(item: dict, classification: dict, tenant_id: str):
         Key=key,
         Body=json.dumps(payload).encode("utf-8"),
         ContentType="application/json",
-        ServerSideEncryption="aws:kms"
+        ServerSideEncryption="aws:kms",
+        SSEKMSKeyId=AUDIT_KMS_KEY_ARN,
     )
     return key
 

@@ -163,7 +163,8 @@ resource "aws_ecs_task_definition" "brain" {
         { name = "SQS_QUEUE_URL", value = aws_sqs_queue.ingestion.url },
         { name = "S3_AUDIT_BUCKET", value = aws_s3_bucket.audit.id },
         { name = "DB_SECRET_ARN", value = aws_secretsmanager_secret.db_master.arn },
-        { name = "AZURE_OPENAI_SECRET_ARN", value = data.aws_secretsmanager_secret.azure_openai.arn }
+        { name = "AZURE_OPENAI_SECRET_ARN", value = data.aws_secretsmanager_secret.azure_openai.arn },
+        { name = "AUDIT_KMS_KEY_ARN", value = aws_kms_key.main.arn }
       ]
       logConfiguration = {
         logDriver = "awslogs"
