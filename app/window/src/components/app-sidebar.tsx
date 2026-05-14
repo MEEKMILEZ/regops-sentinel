@@ -7,9 +7,6 @@ import { signOut, getCurrentUser, fetchUserAttributes } from "aws-amplify/auth"
 import {
   LayoutDashboard,
   Bell,
-  ClipboardList,
-  Box,
-  FileSearch,
   Shield,
   Settings,
   LogOut,
@@ -38,13 +35,13 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 // Navigation items shown in the main sidebar group.
-// In future stages, the "Audit Log" entry might be gated by role.
+// Only routes that are actually wired and gated render here. Obligations,
+// Devices, and Audit Log were planned for Phase 5 and intentionally omitted
+// until the corresponding pages exist; showing a link that 404s would be
+// worse than not showing it at all.
 const navItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Alerts", url: "/alerts", icon: Bell },
-  { title: "Obligations", url: "/obligations", icon: ClipboardList },
-  { title: "Devices", url: "/devices", icon: Box },
-  { title: "Audit Log", url: "/audit", icon: FileSearch },
 ]
 
 interface SessionUser {

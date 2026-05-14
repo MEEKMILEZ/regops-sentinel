@@ -1,23 +1,37 @@
 import { KpiCard } from "@/components/dashboard/kpi-card"
-import { ObligationsDue } from "@/components/dashboard/obligations-due"
+import { ClassificationBreakdownChart } from "@/components/dashboard/classification-breakdown"
 import { RecentClassifications } from "@/components/dashboard/recent-classifications"
 
-// Placeholder sparkline data. Replaced by real time-series in Stage E
-// when the BFF returns historical counts.
-const sparklines = {
-  alertsThisWeek: [12, 9, 15, 18, 14, 22, 24],
-  critical: [4, 5, 5, 7, 6, 8, 9],
-  obligations: [6, 5, 5, 4, 3, 4, 4],
-  auditBlobs: [11, 18, 24, 29, 35, 42, 47],
-}
+import { proxyToBrain } from "@/lib/bff"
+import { computeDashboardStats } from "@/lib/dashboard-stats"
 
-export default function DashboardPage() {
+import type { AlertsListResponse } from "@/lib/types"
+
+// Dashboard fetches real alert data server-side via the BFF helper.
+// We bypass the HTTP layer (no fetch to /api/alerts) and call
+// proxyToBrain directly: same auth (cookie -> Cognito ID token), same
+// upstream (Brain ALB), but no localhost round-trip. The HTTP route at
+// /api/alerts still exists for client-side fetches in the alerts list
+// and detail pages (Stage E.7 / E.8).
+
+export const dynamic = "force-dynamic"
+export const revalidate = 0
+
+export default async function DashboardPage() {
+  const result = await proxyToBrain<AlertsListResponse>("/alerts")
+
+  // Defensive: if the BFF helper failed, render an empty dashboard
+  // rather than crashing the page. Auth gating already happened in the
+  // proxy.ts middleware, so an error here is an upstream/server issue.
+  const alerts = result.ok ? result.data.alerts : []
+  const stats = computeDashboardStats(alerts)
+
   return (
     <div className="flex flex-col gap-6">
       <header>
         <h2 className="text-lg font-semibold">Welcome back, MEEK</h2>
         <p className="text-muted-foreground text-sm">
-          Last sync 4 minutes ago · 3 of 3 watchers running
+          Acme MedDev · 3 of 3 watchers running on a 30-minute schedule
         </p>
       </header>
 
@@ -26,42 +40,44 @@ export default function DashboardPage() {
         className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4"
       >
         <KpiCard
-          label="Alerts this week"
-          value={24}
-          trendText="+18%"
+          label="Total alerts"
+          value={stats.total}
+          trendText="Across 3 watchers"
+          data={stats.sparklines.total}
+        />
+        <KpiCard
+          label="Relevant"
+          value={stats.relevant}
+          trendText="Requires distribution review"
           tone="success"
-          data={sparklines.alertsThisWeek}
+          data={stats.sparklines.relevant}
         />
         <KpiCard
-          label="Critical"
-          value={9}
-          trendText="+3 today"
+          label="High urgency"
+          value={stats.highUrgency}
+          trendText="24h response window"
           tone="danger"
-          data={sparklines.critical}
+          data={stats.sparklines.highUrgency}
         />
         <KpiCard
-          label="Obligations due"
-          value={4}
-          trendText="Soonest 18h"
-          tone="warning"
-          data={sparklines.obligations}
-        />
-        <KpiCard
-          label="Audit blobs"
-          value={47}
-          trendText="Immutable · KMS"
-          data={sparklines.auditBlobs}
+          label="Filtered noise"
+          value={stats.notRelevant}
+          trendText={`AI-filtered · ${stats.filterRatePct}% of feed`}
+          data={stats.sparklines.notRelevant}
         />
       </section>
 
       <section className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <RecentClassifications />
-        <ObligationsDue />
+        <RecentClassifications rows={stats.recent} />
+        <ClassificationBreakdownChart data={stats.breakdown} />
       </section>
 
-      <p className="text-muted-foreground text-center text-xs">
-        All values are placeholders until Stage E wires the BFF.
-      </p>
+      {!result.ok ? (
+        <p className="text-muted-foreground text-center text-xs">
+          Data fetch failed: {result.error.error}
+          {result.error.details ? ` (${result.error.details})` : ""}
+        </p>
+      ) : null}
     </div>
   )
 }
