@@ -235,9 +235,40 @@ resource "aws_ecs_task_definition" "brain" {
         { containerPort = 4317, hostPort = 4317, protocol = "tcp" },
         { containerPort = 4318, hostPort = 4318, protocol = "tcp" }
       ]
-      command = ["--config=/etc/ecs/ecs-default-config.yaml"]
+      # Custom OTLP-to-X-Ray pipeline. The default ECS config wires OTLP
+      # port 4318 to the METRICS pipeline only, which silently drops OTLP
+      # traces. This inline config exposes 4318 to the TRACES pipeline so
+      # brain's OTLP traces actually reach X-Ray.
+      command = ["--config=env:AOT_CONFIG_CONTENT"]
       environment = [
-        { name = "AWS_REGION", value = "ca-central-1" }
+        { name = "AWS_REGION", value = "ca-central-1" },
+        # Custom collector config: enable OTLP -> X-Ray pipeline for
+        # TRACES (the default ECS config only wires OTLP to metrics,
+        # which silently drops trace data).
+        {
+          name  = "AOT_CONFIG_CONTENT"
+          value = <<-EOT
+            receivers:
+              otlp:
+                protocols:
+                  grpc:
+                    endpoint: 0.0.0.0:4317
+                  http:
+                    endpoint: 0.0.0.0:4318
+            processors:
+              batch:
+                timeout: 5s
+            exporters:
+              awsxray:
+                region: ca-central-1
+            service:
+              pipelines:
+                traces:
+                  receivers: [otlp]
+                  processors: [batch]
+                  exporters: [awsxray]
+            EOT
+        }
       ]
       logConfiguration = {
         logDriver = "awslogs"
@@ -260,7 +291,7 @@ resource "aws_ecs_service" "brain" {
   name            = "${local.name_prefix}-brain-${local.full_suffix}"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.brain.arn
-  desired_count   = 0
+  desired_count   = 1
   launch_type     = "FARGATE"
 
   enable_execute_command = true
