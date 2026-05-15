@@ -75,7 +75,7 @@ export function DevicesTable({ devices }: DevicesTableProps) {
                 colSpan={7}
                 className="text-muted-foreground py-8 text-center text-sm"
               >
-                No devices in catalog yet. Phase 5B.2 will add CSV upload.
+                No devices in catalog yet. Use the Upload CSV button to import a Health Canada MDALL export.
               </TableCell>
             </TableRow>
           ) : (

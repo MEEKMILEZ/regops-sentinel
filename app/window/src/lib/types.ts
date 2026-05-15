@@ -8,8 +8,6 @@
 export type Classification = "RELEVANT" | "NEEDS_REVIEW" | "NOT_RELEVANT"
 export type Urgency = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"
 
-// The list endpoint returns a trimmed projection of the Alert row.
-// The detail endpoint returns the full Alert row.
 export interface AlertListItem {
   alert_id: string
   tenant_id: string
@@ -20,12 +18,10 @@ export interface AlertListItem {
   urgency: Urgency
   relevance_score: number | null
   product_categories: string[] | null
-  classified_at: string // ISO 8601 from Postgres
+  classified_at: string
 }
 
 export interface AlertDetail extends AlertListItem {
-  // Detail rows include everything in the alerts table. Optional fields
-  // because not every alert has every column populated.
   summary?: string | null
   url?: string | null
   body?: string | null
@@ -44,8 +40,6 @@ export interface AlertsListResponse {
   alerts: AlertListItem[]
 }
 
-// Error envelope returned by the BFF when something goes wrong.
-// Frontend code can switch on `error` to render a useful message.
 export interface BffError {
   error:
     | "unauthenticated"
@@ -59,35 +53,17 @@ export interface BffError {
 }
 
 // --- Audit log types -----------------------------------------------------
-//
-// The Brain's /audit endpoint returns one entry per immutable JSON blob
-// written to S3 by the worker after classification. Each blob is the
-// auditable record of "we saw item X from source Y, classified it as Z."
-//
-// Shape mirrors AWS CloudTrail LookupEvents and Fastio audit log APIs:
-// events list + cursor envelope.
 
 export interface AuditEventSummary {
-  /** Opaque URL-safe base64 of the S3 key. Use as path param to detail
-   * endpoint (Phase 5A.2). */
   audit_id: string
-  /** ISO 8601 timestamp recorded inside the audit blob. */
   audit_timestamp: string
-  /** Watcher source, e.g. 'health-canada-medeffect'. */
   source: string
-  /** Upstream item id from the source. */
   external_id: string
-  /** Item title at time of classification. */
   title: string
-  /** Classifier verdict. Same vocabulary as alerts. */
   classification: Classification | "" | string
-  /** Urgency band. Same vocabulary as alerts. */
   urgency: Urgency | "" | string
-  /** Audit blob size in bytes. */
   size_bytes: number
-  /** ISO 8601 timestamp from S3 object LastModified. */
   last_modified: string
-  /** KMS key id the object was encrypted under. Short uuid form. */
   encryption_key_id: string | null
 }
 
@@ -98,12 +74,6 @@ export interface AuditListResponse {
 }
 
 // --- Device catalog types -----------------------------------------------
-//
-// The Brain's /devices endpoint returns one entry per medical device a
-// distributor handles. Field selection follows FDA UDI conventions plus
-// Health Canada MDL data points - the regulators a Canadian distributor
-// actually reports to. Stored in the same RDS Postgres as alerts;
-// tenant-scoped on every read.
 
 export type DeviceClass = "I" | "II" | "III" | "IV"
 export type DeviceStatus =
@@ -115,17 +85,13 @@ export type DeviceStatus =
 export interface DeviceListItem {
   device_id: number
   tenant_id: string
-  /** UDI-DI: the globally unique device identifier. Distinct from
-   * device_id, which is our internal Postgres primary key. */
   di: string
   brand_name: string
   model_number: string | null
   manufacturer: string
-  /** Health Canada Medical Device Licence number, if held. */
   mdl_number: string | null
   device_class: DeviceClass | string
   status: DeviceStatus | string
-  /** Regulatory clearance type: 510(k), PMA, De Novo, MDL, CE. */
   clearance_type: string | null
   product_categories: string[] | null
   notes: string | null
@@ -139,18 +105,55 @@ export interface DevicesListResponse {
   devices: DeviceListItem[]
 }
 
+// --- Device upload job types (Phase 5B.2) -------------------------------
+//
+// The Brain's POST /devices/upload accepts a CSV body and returns a
+// job_id immediately. The actual ingestion happens in a background
+// worker. Callers poll GET /devices/upload/{job_id} for progress.
+//
+// status state machine:
+//   queued     -> just created, worker hasn't started yet
+//   processing -> worker is parsing/inserting rows
+//   complete   -> all rows processed (some may have failed; check
+//                 error_count for per-row errors)
+//   failed     -> worker itself crashed before completion; failure_reason
+//                 will be set
+
+export type DeviceUploadJobStatus =
+  | "queued"
+  | "processing"
+  | "complete"
+  | "failed"
+
+export interface DeviceUploadJobErrorEntry {
+  row: number
+  di: string | null
+  error: string
+}
+
+export interface DeviceUploadJobCreateResponse {
+  job_id: string
+  status: DeviceUploadJobStatus
+}
+
+export interface DeviceUploadJob {
+  job_id: string
+  tenant_id: string
+  status: DeviceUploadJobStatus
+  filename: string | null
+  total_rows: number
+  processed_rows: number
+  inserted_count: number
+  updated_count: number
+  error_count: number
+  error_log: DeviceUploadJobErrorEntry[]
+  failure_reason: string | null
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+}
+
 // --- Obligation types ---------------------------------------------------
-//
-// The Brain's /obligations endpoint returns one entry per regulatory
-// task a compliance lead must track. Schema mirrors Health Canada CMDR
-// Section 60 reporting requirements + ISO 13485 quality management
-// obligations + FDA UDI submission cycles.
-//
-// device_id is nullable: some obligations are device-specific (MDL
-// renewal for a particular product), others are company-wide (annual
-// ISO 13485 internal audit). When device_id is set, the Brain also
-// joins the device record so the UI can show the brand name without a
-// second fetch.
 
 export type ObligationType =
   | "mdl_renewal"
@@ -194,7 +197,6 @@ export interface ObligationListItem {
   frequency: ObligationFrequency | string
   status: ObligationStatus | string
   regulatory_body: RegulatoryBody | string | null
-  /** ISO 8601 timestamp. NULL for as_required obligations. */
   due_at: string | null
   severity_if_missed: ObligationSeverity | string
   responsible_party: string | null
@@ -203,7 +205,6 @@ export interface ObligationListItem {
   created_at: string
   updated_at: string
   completed_at: string | null
-  /** Joined from devices table when device_id is set. */
   device_brand_name: string | null
   device_di: string | null
 }
@@ -215,11 +216,6 @@ export interface ObligationsListResponse {
 }
 
 // --- Cross-table search types -------------------------------------------
-//
-// The Brain's /search endpoint returns a flat list of results across
-// alerts, devices, and obligations, ranked by ts_rank score. Each item
-// carries its `kind` so the UI can render the right icon/label and
-// follow the right route on click.
 
 export type SearchKind = "alert" | "device" | "obligation"
 
@@ -230,7 +226,6 @@ export interface SearchResultItem {
   subtitle: string | null
   url: string
   badge: string | null
-  /** ts_rank score from Postgres. Higher = more relevant. */
   rank: number
 }
 
