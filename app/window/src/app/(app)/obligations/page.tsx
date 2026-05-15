@@ -6,7 +6,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 
-import { ObligationsTable } from "@/components/obligations/obligations-table"
+import { ObligationsPageClient } from "@/components/obligations/obligations-page-client"
 
 import { proxyToBrain } from "@/lib/bff"
 
@@ -14,6 +14,8 @@ import type { ObligationsListResponse } from "@/lib/types"
 
 // Server component. Fetches the obligations list via the BFF helper.
 // Same auth + tenant-scoping pattern as /alerts, /audit, /devices.
+// Interactive bits (New button, form dialog state) live in the client
+// wrapper ObligationsPageClient.
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -24,9 +26,6 @@ export default async function ObligationsListPage() {
 
   const obligations = result.ok ? result.data.obligations : []
 
-  // KPIs that match how a compliance lead scans:
-  // overdue (action needed now), due_soon (action needed this week),
-  // upcoming (visible pipeline).
   const overdueCount = obligations.filter((o) => o.status === "overdue").length
   const dueSoonCount = obligations.filter((o) => o.status === "due_soon").length
   const upcomingCount = obligations.filter((o) => o.status === "upcoming").length
@@ -36,8 +35,8 @@ export default async function ObligationsListPage() {
       <header>
         <h2 className="text-lg font-semibold">Regulatory obligations</h2>
         <p className="text-muted-foreground text-sm">
-          {overdueCount} overdue · {dueSoonCount} due soon · {upcomingCount}{" "}
-          upcoming · Acme MedDev
+          {overdueCount} overdue &middot; {dueSoonCount} due soon &middot;{" "}
+          {upcomingCount} upcoming &middot; Acme MedDev
         </p>
       </header>
 
@@ -45,12 +44,13 @@ export default async function ObligationsListPage() {
         <CardHeader>
           <CardTitle className="text-base">Compliance obligations</CardTitle>
           <CardDescription className="text-xs">
-            Health Canada CMDR Section 60 · ISO 13485 QMS · FDA UDI cycles
-            · grouped by urgency status then due date · 10 per page
+            Health Canada CMDR Section 60 &middot; ISO 13485 QMS &middot; FDA UDI
+            cycles &middot; grouped by urgency status then due date &middot; 10
+            per page
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <ObligationsTable obligations={obligations} />
+        <CardContent className="flex flex-col gap-4">
+          <ObligationsPageClient obligations={obligations} />
         </CardContent>
       </Card>
 

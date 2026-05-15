@@ -22,18 +22,19 @@ import {
 import { cn } from "@/lib/utils"
 
 import type { ObligationListItem } from "@/lib/types"
+import { ObligationRowActions } from "@/components/obligations/obligation-row-actions"
 
 interface ObligationsTableProps {
   obligations: ObligationListItem[]
+  onEdit: (obligation: ObligationListItem) => void
 }
 
 const PAGE_SIZE = 10
 
-// Client-side pagination over an already-fetched array. Same pattern
-// as the alerts, audit, and devices tables. Brain returns ordered by
-// status then due_at; we trust that order.
-
-export function ObligationsTable({ obligations }: ObligationsTableProps) {
+export function ObligationsTable({
+  obligations,
+  onEdit,
+}: ObligationsTableProps) {
   const [page, setPage] = React.useState(0)
 
   const totalPages = Math.max(1, Math.ceil(obligations.length / PAGE_SIZE))
@@ -67,16 +68,17 @@ export function ObligationsTable({ obligations }: ObligationsTableProps) {
             <TableHead className="w-[140px]">Regulator</TableHead>
             <TableHead className="w-[140px]">Due</TableHead>
             <TableHead className="w-[100px]">Severity</TableHead>
+            <TableHead className="w-[60px] text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {visible.length === 0 ? (
             <TableRow>
               <TableCell
-                colSpan={6}
+                colSpan={7}
                 className="text-muted-foreground py-8 text-center text-sm"
               >
-                No obligations tracked yet. Phase 5C.2 will add create/edit UI.
+                No obligations tracked yet. Click "New obligation" to add one.
               </TableCell>
             </TableRow>
           ) : (
@@ -127,6 +129,9 @@ export function ObligationsTable({ obligations }: ObligationsTableProps) {
                     <Badge variant={severityVariant(row.severity_if_missed)}>
                       {row.severity_if_missed}
                     </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <ObligationRowActions obligation={row} onEdit={onEdit} />
                   </TableCell>
                 </TableRow>
               )
@@ -235,7 +240,7 @@ function humanObligationType(t: string): string {
 }
 
 function humanRegulator(r: string | null): string {
-  if (!r) return "—"
+  if (!r) return "-"
   switch (r) {
     case "health_canada":
       return "Health Canada"
@@ -271,7 +276,7 @@ function formatDueRelative(
   dueAt: string | null,
   status: string,
 ): { label: string; tone: string } {
-  if (!dueAt) return { label: "—", tone: "text-muted-foreground" }
+  if (!dueAt) return { label: "-", tone: "text-muted-foreground" }
   if (status === "completed") {
     return { label: formatShortDate(dueAt), tone: "text-muted-foreground" }
   }
