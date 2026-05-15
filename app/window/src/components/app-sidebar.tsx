@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   Bell,
   FileText,
+  Boxes,
   Shield,
   Settings,
   LogOut,
@@ -37,12 +38,13 @@ import {
 
 // Navigation items shown in the main sidebar group.
 // Only routes that are actually wired and gated render here. Obligations
-// and Devices were planned for Phase 5 and remain intentionally omitted
-// until the corresponding pages exist; showing a link that 404s would be
-// worse than not showing it at all. Audit log shipped in Phase 5A.
+// remains intentionally omitted until Phase 5C ships; showing a link
+// that 404s would be worse than not showing it at all. Audit log
+// shipped in Phase 5A, Devices catalog (read-only) shipped in Phase 5B.
 const navItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Alerts", url: "/alerts", icon: Bell },
+  { title: "Devices", url: "/devices", icon: Boxes },
   { title: "Audit log", url: "/audit", icon: FileText },
 ]
 

@@ -96,3 +96,45 @@ export interface AuditListResponse {
   next_cursor: string | null
   has_more: boolean
 }
+
+// --- Device catalog types -----------------------------------------------
+//
+// The Brain's /devices endpoint returns one entry per medical device a
+// distributor handles. Field selection follows FDA UDI conventions plus
+// Health Canada MDL data points - the regulators a Canadian distributor
+// actually reports to. Stored in the same RDS Postgres as alerts;
+// tenant-scoped on every read.
+
+export type DeviceClass = "I" | "II" | "III" | "IV"
+export type DeviceStatus =
+  | "active"
+  | "recalled"
+  | "discontinued"
+  | "pending"
+
+export interface DeviceListItem {
+  device_id: number
+  tenant_id: string
+  /** UDI-DI: the globally unique device identifier. Distinct from
+   * device_id, which is our internal Postgres primary key. */
+  di: string
+  brand_name: string
+  model_number: string | null
+  manufacturer: string
+  /** Health Canada Medical Device Licence number, if held. */
+  mdl_number: string | null
+  device_class: DeviceClass | string
+  status: DeviceStatus | string
+  /** Regulatory clearance type: 510(k), PMA, De Novo, MDL, CE. */
+  clearance_type: string | null
+  product_categories: string[] | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface DevicesListResponse {
+  tenant_id: string
+  count: number
+  devices: DeviceListItem[]
+}
