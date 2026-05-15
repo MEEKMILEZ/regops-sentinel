@@ -6,7 +6,7 @@
 
 A regulatory intelligence platform for Canadian medical device distributors. Continuously watches Health Canada signals (recalls, drug shortages, MedEffect adverse events), classifies them with GPT-4o through Azure OpenAI, and delivers tenant-scoped alerts with an immutable audit trail.
 
-**Status:** Through Phase 5C.3 + Phase 8 part 1 (CI). Ingestion, classification, audit log, device catalog, obligations tracker (full CRUD with audit), full-text search, audit-bucket Object Lock, async CSV upload, and dependency security refresh all shipped end-to-end. UI live for all four data domains including the obligation create / edit / complete / delete flows. CI workflows green on every push. Remaining: architecture diagram + remaining observability captures (Phase 8 part 2), formal CI/CD auto-deploy (deferred to a focused session).
+**Status:** Through Phase 9 (CI/CD auto-deploy). Ingestion, classification, audit log, device catalog, obligations tracker (full CRUD with audit), full-text search, audit-bucket Object Lock, async CSV upload, dependency security refresh, CloudWatch alarms + SNS, weekly regulatory digest via Lambda + SES, and GitHub Actions OIDC keyless auto-deploy on push to main all shipped end-to-end. UI live for all four data domains including the obligation create / edit / complete / delete flows. CI workflows green on every push; brain image deploys are now automatic. Remaining: X-Ray distributed tracing (spans emitting but not arriving at X-Ray, debug session pending) and the final architecture-diagram screenshot.
 
 ---
 
@@ -180,11 +180,13 @@ Enabling Object Lock on the existing bucket was done via an out-of-band `aws s3a
 | 5C: Obligations tracker + cross-table tsvector search | Complete |
 | 5C.2: Obligations create/edit UI | Pending |
 | 5D: Audit bucket hardening (Object Lock + immutability proof) | Complete |
-| 6: Observability (CloudWatch dashboard, alarms, X-Ray) | Partial (dashboard done, alarms/X-Ray pending) |
-| 7: End-to-End Demo (real-world scenario, weekly digest email) | Pending |
-| 8: Repo and CI/CD (GitHub Actions, architecture diagram, badges) | Pending |
+| 6A: CloudWatch dashboard + alarms + SNS topic (10 alarms, 6 metric, 4 composite) | Complete |
+| 6B: X-Ray distributed tracing (OpenTelemetry SDK + ADOT collector deployed) | Partial (spans emitting but not arriving at X-Ray; debug session pending) |
+| 7: End-to-End Demo - weekly regulatory digest email (EventBridge -> Lambda -> RDS -> SES) | Complete |
+| 8: Repo and CI/CD (GitHub Actions workflows for brain, window, terraform) | Complete |
+| 9: GitHub Actions OIDC keyless auto-deploy on push to main (no long-lived AWS credentials) | Complete |
 
-Each phase has a defined screenshot manifest entry. See [SCREENSHOTS-MANIFEST.md](SCREENSHOTS-MANIFEST.md). Current capture: 38 of 50.
+Each phase has a defined screenshot manifest entry. See [SCREENSHOTS-MANIFEST.md](SCREENSHOTS-MANIFEST.md). Current capture: 48 of 50 (row 46 X-Ray service map deferred pending the Phase 6B debug session; rows 37 and 38 multi-tenant + mobile-responsive deferred per amendments).
 
 ## What's not done
 
@@ -195,7 +197,7 @@ Being honest about scope rather than hiding the gaps:
 - **Multi-tenant onboarding flow.** `tenant-acme-meddev` is seeded into the database; a second customer would need a Terraform change and a manual Cognito user creation. No self-serve sign-up.
 - **Audit log detail page.** You can list audit events but clicking through to a single event's JSON payload is not wired (the Brain endpoint exists; the UI page isn't built).
 - **Bulk actions, filters, exports.** The tables paginate but don't filter, sort beyond default, or export to CSV/PDF.
-- **CI/CD.** Deploys are currently driven by a hand-rolled PowerShell pipeline (`deploy-audit-endpoint.ps1`) that builds via CodeBuild and rolls ECS. Phase 8 will move this to GitHub Actions.
+- **X-Ray distributed tracing.** The ADOT collector sidecar is deployed in the brain ECS task and OpenTelemetry instrumentation is initialized at startup, but generated spans are not yet arriving at AWS X-Ray. Three hypotheses queued for the next debug session: OTLP endpoint path, parent-based sampler filtering, or BatchSpanProcessor export failure.
 - **The CloudWatch dashboard recapture** and the remaining observability screenshots (AWS Config, CloudTrail, IAM Access Analyzer, CW alarm, X-Ray traces).
 
 The list above is what a hiring manager should expect to see absent. It is not an exhaustive future roadmap — a real productionization would also need billing, support docs, user management, RBAC, audit-log retention tuning per customer, and a dozen other things that aren't on this project's scope.
@@ -213,6 +215,8 @@ The list above is what a hiring manager should expect to see absent. It is not a
 **Object Lock layered on top of versioning, not in place of it.** Object Lock alone protects writes from being deleted; versioning alone lets you recover an overwritten object. Together they cover both threat models — accidental deletion and adversarial modification. Object Lock is also AWS's actual answer to "how do you make S3 immutable" — bucket policies that deny `s3:DeleteObject` are a soft control that any IAM admin can edit; Object Lock retention is a hard control that requires waiting out the retention period.
 
 **The buildspec lives in CodeBuild, not in git.** There's a `buildspec.yml` file in `app/brain/` and an inline buildspec in the CodeBuild Terraform. They should match but the inline one is authoritative because the project is configured with `source.type = NO_SOURCE`. Phase 8 will pick one location and remove the other.
+
+**Keyless deploys via OIDC, not long-lived access keys.** The GitHub Actions deploy role is assumed via OpenID Connect: GitHub mints a JWT signed by their well-known endpoint, AWS verifies it against a trust policy that checks both the audience (`sts.amazonaws.com`) and the subject (`repo:MEEKMILEZ/regops-sentinel:ref:refs/heads/main`), and STS hands back 1-hour temporary credentials. No `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` is stored in GitHub secrets, the repo, or anywhere else. This is the AWS-documented pattern for CI/CD authentication and the modern replacement for IAM access keys in CI workflows.
 
 ## Lessons captured during the build
 
