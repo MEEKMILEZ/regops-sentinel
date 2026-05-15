@@ -1,0 +1,70 @@
+name: Brain CI
+
+# Runs on every push to main and on every PR targeting main, but only
+# when files under app/brain/** change. This keeps the workflow cheap;
+# UI-only changes do not retrigger the Python toolchain.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/brain/**"
+      - ".github/workflows/brain-ci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/brain/**"
+      - ".github/workflows/brain-ci.yml"
+
+# Cancel any in-progress run of this workflow for the same branch when
+# a new commit lands. Standard pattern; saves CI minutes on rapid pushes.
+concurrency:
+  group: brain-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  brain-checks:
+    name: Lint + security audit + compile + docker build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install pip-audit
+        run: python -m pip install --upgrade pip pip-audit
+
+      # pip-audit is the OSS supply-chain scanner maintained by the PyPA
+      # security team. It cross-references pinned versions in
+      # requirements.txt against the PyPI Advisory Database. Any CVE
+      # with a known fix version fails the build.
+      - name: Audit Python dependencies for known CVEs
+        run: |
+          python -m pip_audit \
+            --requirement app/brain/requirements.txt \
+            --strict
+
+      # Syntax check every Python file. py_compile is part of the
+      # standard library so we do not need to install anything else.
+      # This catches obvious typos before they reach a Docker build,
+      # which is much slower to fail.
+      - name: py_compile every Python file
+        run: |
+          python -m compileall -q app/brain/src
+
+      # Build the Docker image as a sanity check. We do not push - the
+      # production deploy goes through CodeBuild on the AWS side. This
+      # step just verifies the Dockerfile is still valid and the base
+      # image still resolves.
+      - name: Docker build (dry run, no push)
+        run: |
+          docker build \
+            --tag regops-sentinel-brain:ci-${{ github.sha }} \
+            --file app/brain/Dockerfile \
+            app/brain

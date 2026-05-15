@@ -1,5 +1,5 @@
 resource "aws_s3_bucket" "audit" {
-  bucket        = "${local.name_prefix}-audit-${local.full_suffix}"
+  bucket = "${local.name_prefix}-audit-${local.full_suffix}"
   # Phase 5D: flipped from true. The audit log is the regulatory record
   # of record; nuking it should never be a single-command operation.
   force_destroy = false

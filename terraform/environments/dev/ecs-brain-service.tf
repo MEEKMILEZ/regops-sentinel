@@ -165,7 +165,7 @@ resource "aws_ecs_task_definition" "brain" {
         { name = "DB_SECRET_ARN", value = aws_secretsmanager_secret.db_master.arn },
         { name = "AZURE_OPENAI_SECRET_ARN", value = data.aws_secretsmanager_secret.azure_openai.arn },
         { name = "AUDIT_KMS_KEY_ARN", value = aws_kms_key.main.arn },
-          { name = "COGNITO_APP_CLIENT_IDS", value = "${aws_cognito_user_pool_client.web.id},${aws_cognito_user_pool_client.cli.id}" }
+        { name = "COGNITO_APP_CLIENT_IDS", value = "${aws_cognito_user_pool_client.web.id},${aws_cognito_user_pool_client.cli.id}" }
       ]
       logConfiguration = {
         logDriver = "awslogs"

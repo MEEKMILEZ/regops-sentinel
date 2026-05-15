@@ -1,0 +1,74 @@
+name: Window CI
+
+# Runs on every push to main and on every PR targeting main, but only
+# when files under app/window/** change. UI-only PRs trigger this and
+# nothing else.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/window/**"
+      - ".github/workflows/window-ci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/window/**"
+      - ".github/workflows/window-ci.yml"
+
+concurrency:
+  group: window-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  window-checks:
+    name: npm audit + tsc + next build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: app/window
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: app/window/package-lock.json
+
+      # npm ci installs exactly what is in package-lock.json. Reproducible
+      # builds; the alternative `npm install` may upgrade transitively.
+      - name: Install dependencies
+        run: npm ci
+
+      # npm audit on production dependencies only (--omit=dev). Today we
+      # ship with 2 moderate-severity transitive postcss CVEs that are
+      # bundled by Next.js itself and would require a destructive
+      # `npm audit fix --force` (downgrading Next 16 -> 9) to "fix".
+      # The CVEs are build-time-only with no runtime exploit surface in
+      # our threat model. We log them but do not fail the build for
+      # them today; revisit when a Next.js minor release picks up the
+      # patched postcss.
+      - name: Audit production dependencies for CVEs
+        run: npm audit --omit=dev
+        continue-on-error: true
+
+      # TypeScript strict type check across the whole project.
+      - name: TypeScript compile (no emit)
+        run: npx tsc --noEmit --project tsconfig.json
+
+      # Full production build via Next.js. Compiles every page, validates
+      # the React Server Component / Client Component boundary, and
+      # generates the static asset bundle.
+      - name: Next.js production build
+        run: npx next build
+        env:
+          # The build does not need a real Brain URL; the BFF routes are
+          # dynamic and resolve at request time. Setting a dummy value
+          # prevents the "BRAIN_BASE_URL is not set" warning from
+          # cluttering CI output.
+          BRAIN_BASE_URL: http://ci-placeholder.invalid
