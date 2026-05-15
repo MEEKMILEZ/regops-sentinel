@@ -1,10 +1,28 @@
-fastapi==0.115.0
-uvicorn[standard]==0.32.0
-boto3==1.35.0
-psycopg[binary]==3.2.3
-pydantic==2.9.0
-openai==1.54.0
-httpx==0.27.2
-python-json-logger==2.0.7
-pyjwt[crypto]==2.9.0
-cachetools==5.5.0
+# Brain dependencies, last updated 2026-05-15 (Phase 5C.3 security refresh).
+#
+# Pinning strategy: pin to the latest patch within the current major.minor
+# series for security-fixed packages, hold back known-breaking major bumps
+# (openai 2.x, cachetools 7.x, python-json-logger 4.x, starlette 1.x) for
+# a dedicated migration session.
+#
+# Direct dependencies:
+fastapi==0.136.1
+uvicorn[standard]==0.47.0
+boto3==1.43.8
+psycopg[binary]==3.3.4
+pydantic==2.13.4
+openai==1.109.1
+httpx==0.28.1
+python-json-logger==3.3.0
+pyjwt[crypto]==2.12.1
+cachetools==6.2.1
+
+# Transitive dependency pinned for security:
+# starlette is pulled in by fastapi but we pin it explicitly to ensure we
+# get all current CVE fixes:
+#   - CVE-2024-47874   DoS via multipart, fixed in 0.40.0
+#   - CVE-2025-54121   DoS via multipart spool rollover, fixed in 0.47.2
+#   - CVE-2025-62727   DoS via Range header ReDoS, fixed in 0.49.1
+# Holding back on the 0.49.x line rather than 1.x to avoid API-stability
+# breakage; 0.49.1+ is the version that closes all three CVEs.
+starlette>=0.49.1,<1.0.0
