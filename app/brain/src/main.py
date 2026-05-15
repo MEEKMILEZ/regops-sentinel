@@ -14,6 +14,20 @@ from .config import LOG_LEVEL, S3_AUDIT_BUCKET, get_azure_openai_credentials
 from .db import init_schema, get_connection
 from .worker import poll_loop
 from .classifier import classify
+from .obligations_crud import (
+    create_obligation,
+    update_obligation,
+    complete_obligation,
+    delete_obligation,
+    ValidationError,
+)
+from .obligation_audit import (
+    write_obligation_audit_blob,
+    ACTION_CREATE,
+    ACTION_UPDATE,
+    ACTION_COMPLETE,
+    ACTION_DELETE,
+)
 
 logging.basicConfig(
     level=LOG_LEVEL,
@@ -350,6 +364,260 @@ def get_device(
             device_id,
         )
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# Phase 5C.2: Obligations CRUD endpoints
+#
+# These are registered BEFORE the existing @app.get("/obligations/{id}")
+# below to avoid the route specificity bug we hit in Phase 5B.2
+# (/devices/{id} capturing /devices/upload as id="upload").
+#
+# Every state-changing endpoint writes an immutable S3 audit blob AFTER
+# the DB write succeeds. Audit write failures surface to the caller as
+# 500s because a silently-skipped audit defeats the purpose of an
+# audit trail.
+# ============================================================
+
+@app.post("/obligations", status_code=201)
+def create_obligation_endpoint(
+    request: Request,
+    payload: dict,
+    user: CurrentUser = Depends(current_user),
+):
+    """Create a new obligation. Returns the inserted row.
+
+    Audited as ACTION_CREATE with before=None.
+    """
+    try:
+        created = create_obligation(user.tenant_id, payload)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(
+            "create_obligation failed for tenant %s", user.tenant_id
+        )
+        raise HTTPException(status_code=500, detail=str(e))
+
+    try:
+        write_obligation_audit_blob(
+            action=ACTION_CREATE,
+            tenant_id=user.tenant_id,
+            obligation_id=created["obligation_id"],
+            actor_email=user.email,
+            actor_user_id=user.sub,
+            before=None,
+            after=created,
+        )
+    except Exception:
+        # Audit write failed AFTER the DB insert succeeded. The row exists
+        # but has no audit trail. We surface a 500 so the operator knows
+        # to investigate (and ideally manually delete the row + re-create
+        # cleanly), rather than pretending all is well.
+        logger.exception(
+            "audit write failed for tenant %s obligation %s; "
+            "DB write succeeded but audit is missing",
+            user.tenant_id,
+            created["obligation_id"],
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="obligation_created_but_audit_failed",
+        )
+
+    return created
+
+
+@app.patch("/obligations/{obligation_id}")
+def update_obligation_endpoint(
+    obligation_id: int,
+    payload: dict,
+    user: CurrentUser = Depends(current_user),
+):
+    """Partially update an obligation. Returns the updated row.
+
+    Audited as ACTION_UPDATE with before+after snapshots so the audit
+    trail captures the exact diff a regulator would ask about.
+    """
+    try:
+        before, after = update_obligation(user.tenant_id, obligation_id, payload)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(
+            "update_obligation failed for tenant %s obligation %s",
+            user.tenant_id,
+            obligation_id,
+        )
+        raise HTTPException(status_code=500, detail=str(e))
+
+    if before is None:
+        raise HTTPException(status_code=404, detail="obligation_not_found")
+
+    try:
+        write_obligation_audit_blob(
+            action=ACTION_UPDATE,
+            tenant_id=user.tenant_id,
+            obligation_id=obligation_id,
+            actor_email=user.email,
+            actor_user_id=user.sub,
+            before=before,
+            after=after,
+        )
+    except Exception:
+        logger.exception(
+            "audit write failed for tenant %s obligation %s update",
+            user.tenant_id,
+            obligation_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="obligation_updated_but_audit_failed",
+        )
+
+    return after
+
+
+@app.post("/obligations/{obligation_id}/complete")
+def complete_obligation_endpoint(
+    obligation_id: int,
+    user: CurrentUser = Depends(current_user),
+):
+    """Mark an obligation complete. Sets status=completed, completed_at=NOW().
+
+    Idempotent: calling complete() twice is OK. The audit log records each
+    call separately so a regulator can see all "complete this" events.
+    """
+    try:
+        before, after = complete_obligation(user.tenant_id, obligation_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(
+            "complete_obligation failed for tenant %s obligation %s",
+            user.tenant_id,
+            obligation_id,
+        )
+        raise HTTPException(status_code=500, detail=str(e))
+
+    if before is None:
+        raise HTTPException(status_code=404, detail="obligation_not_found")
+
+    try:
+        write_obligation_audit_blob(
+            action=ACTION_COMPLETE,
+            tenant_id=user.tenant_id,
+            obligation_id=obligation_id,
+            actor_email=user.email,
+            actor_user_id=user.sub,
+            before=before,
+            after=after,
+        )
+    except Exception:
+        logger.exception(
+            "audit write failed for tenant %s obligation %s complete",
+            user.tenant_id,
+            obligation_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="obligation_completed_but_audit_failed",
+        )
+
+    return after
+
+
+@app.delete("/obligations/{obligation_id}", status_code=200)
+def delete_obligation_endpoint(
+    obligation_id: int,
+    user: CurrentUser = Depends(current_user),
+):
+    """Hard-delete an obligation. The audit blob remains in S3 forever.
+
+    Returns the deleted row's snapshot so the UI can render a confirmation
+    message ("deleted MDL renewal for Aquilion CT scanner") rather than
+    a generic "deleted" string.
+    """
+    # CRITICAL ORDER: write the audit blob FIRST, then do the DB delete.
+    # If the order were reversed and the audit write failed, we'd have a
+    # row that no longer exists with no audit trail of its deletion.
+    # Writing audit-then-delete means the worst case is a stale audit
+    # blob for a row that wasn't actually deleted (preferable: a
+    # regulator sees "we tried to delete this" instead of "this just
+    # disappeared with no record").
+    try:
+        from .obligations_crud import get_obligation
+        snapshot = get_obligation(user.tenant_id, obligation_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(
+            "pre-delete fetch failed for tenant %s obligation %s",
+            user.tenant_id,
+            obligation_id,
+        )
+        raise HTTPException(status_code=500, detail=str(e))
+
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="obligation_not_found")
+
+    try:
+        write_obligation_audit_blob(
+            action=ACTION_DELETE,
+            tenant_id=user.tenant_id,
+            obligation_id=obligation_id,
+            actor_email=user.email,
+            actor_user_id=user.sub,
+            before=snapshot,
+            after=None,
+        )
+    except Exception:
+        logger.exception(
+            "audit write failed for tenant %s obligation %s delete; "
+            "delete was NOT performed",
+            user.tenant_id,
+            obligation_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="audit_write_failed_delete_aborted",
+        )
+
+    # Audit is durable; now do the DB delete.
+    try:
+        deleted = delete_obligation(user.tenant_id, obligation_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        # The audit blob says we deleted but the DB delete failed.
+        # Surface this loudly - it's a real inconsistency for an
+        # operator to investigate.
+        logger.exception(
+            "DB delete failed after audit write for tenant %s obligation %s",
+            user.tenant_id,
+            obligation_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="audit_written_but_db_delete_failed",
+        )
+
+    if deleted is None:
+        # Race: row existed at the snapshot fetch but was gone by the
+        # time we tried to delete it. Audit blob already recorded the
+        # delete event - call it a successful delete.
+        logger.warning(
+            "obligation %s for tenant %s was already deleted "
+            "between snapshot and delete",
+            obligation_id,
+            user.tenant_id,
+        )
+
+    return {"deleted": True, "obligation": snapshot}
 
 
 @app.get("/obligations")
