@@ -105,17 +105,8 @@ CREATE INDEX IF NOT EXISTS idx_obligations_tenant_status
     ON obligations (tenant_id, status)
     WHERE status IN ('overdue', 'due_soon', 'upcoming');
 
--- =====================================================================
--- Full-text search infrastructure (tsvector + GIN + triggers)
--- =====================================================================
---
--- Industry-standard Postgres full-text search pattern.
---   - search_vector: tsvector column auto-maintained by trigger
---   - GIN index: O(log n) lookup regardless of table size
---   - to_tsvector('english', ...): stems plurals, removes stop-words
---   - setweight(): A=most important (title/brand), B=secondary, C=metadata
---   - plainto_tsquery: turns user input into a safe tsquery
---   - ts_rank: relevance score for cross-table sorting
+-- pgcrypto required for gen_random_uuid() used by device_upload_jobs.
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 ALTER TABLE alerts
     ADD COLUMN IF NOT EXISTS search_vector tsvector;
@@ -177,19 +168,53 @@ CREATE TRIGGER trg_obligations_search_vector
     BEFORE INSERT OR UPDATE OF title, description, obligation_type, responsible_party ON obligations
     FOR EACH ROW EXECUTE FUNCTION obligations_search_vector_trigger();
 
--- GIN indexes for fast tsquery matching.
 CREATE INDEX IF NOT EXISTS idx_alerts_search ON alerts USING GIN(search_vector);
 CREATE INDEX IF NOT EXISTS idx_devices_search ON devices USING GIN(search_vector);
 CREATE INDEX IF NOT EXISTS idx_obligations_search ON obligations USING GIN(search_vector);
 
--- Backfill rows that pre-date the trigger (no-op UPDATE fires the trigger).
 UPDATE alerts SET title = title WHERE search_vector IS NULL;
 UPDATE devices SET brand_name = brand_name WHERE search_vector IS NULL;
 UPDATE obligations SET title = title WHERE search_vector IS NULL;
 
 -- =====================================================================
--- Seed data
+-- Phase 5B.2: device_upload_jobs table (async CSV ingestion)
 -- =====================================================================
+--
+-- Industry-standard async job pattern:
+--   1. Client POST /devices/upload with CSV body, gets back job_id
+--   2. Job row created status=queued, payload stored in payload_csv
+--   3. Background thread picks up, sets status=processing
+--   4. Worker parses CSV, processes rows in batches, updates counts
+--   5. On completion sets status=complete (or failed) + completed_at
+--   6. Client polls GET /devices/upload/{job_id} for progress
+--
+-- Same pattern as S3 Batch Operations, Stripe File Uploads, Shopify
+-- Bulk Operations.
+
+CREATE TABLE IF NOT EXISTS device_upload_jobs (
+    job_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id       TEXT NOT NULL REFERENCES tenants(tenant_id),
+    status          TEXT NOT NULL DEFAULT 'queued',
+    filename        TEXT,
+    payload_csv     TEXT NOT NULL,
+    total_rows      INTEGER NOT NULL DEFAULT 0,
+    processed_rows  INTEGER NOT NULL DEFAULT 0,
+    inserted_count  INTEGER NOT NULL DEFAULT 0,
+    updated_count   INTEGER NOT NULL DEFAULT 0,
+    error_count     INTEGER NOT NULL DEFAULT 0,
+    error_log       JSONB NOT NULL DEFAULT '[]'::jsonb,
+    failure_reason  TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    started_at      TIMESTAMPTZ,
+    completed_at    TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_device_upload_jobs_tenant_created
+    ON device_upload_jobs (tenant_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_device_upload_jobs_status
+    ON device_upload_jobs (status)
+    WHERE status IN ('queued', 'processing');
 
 INSERT INTO tenants (tenant_id, display_name)
 VALUES
@@ -205,47 +230,36 @@ VALUES
     ('tenant-acme-meddev', '00819320020014', 'Impella CP', '0048-0001',
      'Abiomed, Inc.', '105432', 'IV', 'recalled', 'PMA',
      ARRAY['cardiology-devices','circulatory-support']),
-
     ('tenant-acme-meddev', '00819320020021', 'CASE Cardiac Testing System',
      'V8.0', 'GE HealthCare', '78812', 'II', 'active', '510(k)',
      ARRAY['cardiology-devices','diagnostic-ecg']),
-
     ('tenant-acme-meddev', '00819320020038', 'directCHECK Whole Blood Control',
      'WB-CTRL-100', 'Werfen', '54321', 'I', 'active', 'MDL',
      ARRAY['ivd-quality-control']),
-
     ('tenant-acme-meddev', '00819320020045', 'Endoflip System',
      'EF-322', 'Medtronic', '92110', 'II', 'active', '510(k)',
      ARRAY['gastroenterology','functional-luminal-imaging']),
-
     ('tenant-acme-meddev', '00819320020052', 'Plum Solo Infusion Pump',
      '30010', 'ICU Medical', '88445', 'II', 'recalled', '510(k)',
      ARRAY['infusion-therapy']),
-
     ('tenant-acme-meddev', '00819320020069', 'Plum Duo Precision IV Pump',
      '30020', 'ICU Medical', '88446', 'II', 'recalled', '510(k)',
      ARRAY['infusion-therapy']),
-
     ('tenant-acme-meddev', '00819320020076', 'Avanta Fluid Injection System',
      'AV-2200', 'Bracco Diagnostics', '67891', 'II', 'recalled', '510(k)',
      ARRAY['contrast-injection','radiology']),
-
     ('tenant-acme-meddev', '00819320020083', 'Azurion Image-Guided Therapy',
      'C20', 'Philips', '110234', 'III', 'active', 'MDL',
      ARRAY['interventional-radiology','imaging']),
-
     ('tenant-acme-meddev', '00819320020090', 'TCN Reusable RF Electrodes',
      'TCN-RFE-5', 'Stryker', '99012', 'II', 'active', '510(k)',
      ARRAY['surgical-energy','electrosurgery']),
-
     ('tenant-acme-meddev', '00819320020106', 'GlucoMeter Pro 200',
      'GM-PRO-200', 'Abbott Diabetes Care', '45678', 'II', 'active', 'MDL',
      ARRAY['ivd-glucose','point-of-care']),
-
     ('tenant-acme-meddev', '00819320020113', 'NeuroVent EEG Cap',
      'NV-EEG-32', 'Natus Medical', '55321', 'II', 'active', '510(k)',
      ARRAY['neurology','eeg-monitoring']),
-
     ('tenant-acme-meddev', '00819320020120', 'SurgiSeal Tissue Adhesive',
      'SS-TA-2', 'Adhezion Biomedical', '70044', 'II', 'discontinued', 'MDL',
      ARRAY['wound-closure','surgical-adhesives'])
@@ -268,57 +282,46 @@ FROM (VALUES
      'Send Impella CP Class IV recall notice to all customer hospitals per FDA 21 CFR 806.10 / Health Canada MDR Section 64.',
      'recall_notification', 'one_time', 'overdue', 'health_canada',
      -2, 'critical', 'Compliance Lead'),
-
     ('00819320020052', 'Plum Solo recall - customer outreach round 2',
      'Second-wave customer notification for Plum Solo Class II recall. Round 1 complete; round 2 covers non-responders.',
      'recall_notification', 'one_time', 'overdue', 'health_canada',
      -1, 'high', 'Customer Success'),
-
     ('00819320020069', 'Plum Duo - 30-day update to Health Canada',
      'Required follow-up report 30 days after initial recall filing. Forms: MDR Section 60 update form.',
      'recall_notification', 'one_time', 'due_soon', 'health_canada',
      3, 'high', 'Compliance Lead'),
-
     (NULL, 'Quarterly adverse event report (Q1 2026)',
      'Aggregate AE report covering all distributed devices for Q1 2026. Combines device-specific AE counts into single CMDR Section 59 quarterly filing.',
      'adverse_event_report', 'quarterly', 'due_soon', 'health_canada',
      5, 'high', 'Compliance Lead'),
-
     ('00819320020076', 'Avanta - root cause investigation report',
      'Internal RCA for Avanta recall trigger. Required by ISO 13485:2016 clause 8.5.2 before corrective action closure.',
      'incident_investigation', 'one_time', 'due_soon', 'internal_qms',
      6, 'medium', 'Quality Engineer'),
-
     ('00819320020014', 'Impella CP - MDL renewal',
      'Health Canada Medical Device Licence #105432 expires in 18 days. Renewal application requires updated QMS attestation.',
      'mdl_renewal', 'annual', 'upcoming', 'health_canada',
      18, 'critical', 'Compliance Lead'),
-
     (NULL, 'ISO 13485 internal audit - Q2 2026',
      'Annual internal QMS audit per ISO 13485:2016 clause 8.2.4. Scheduled for week of June 1.',
      'qms_audit', 'annual', 'upcoming', 'iso_auditor',
      21, 'medium', 'Quality Manager'),
-
     ('00819320020083', 'Azurion - post-market surveillance review',
      'Annual PMS review for Class III Azurion image-guided therapy system. Required by Health Canada CMDR Section 61.',
      'post_market_surveillance', 'annual', 'upcoming', 'health_canada',
      24, 'medium', 'Compliance Lead'),
-
     ('00819320020045', 'Endoflip - UDI database submission update',
      'Health Canada UDI database refresh - new model variant added to product line. Submission window opens monthly.',
      'udi_submission', 'monthly', 'upcoming', 'health_canada',
      27, 'low', 'Regulatory Affairs'),
-
     ('00819320020021', 'CASE Cardiac - manufacturer attestation refresh',
      'Annual confirmation that distributor is still authorised to distribute GE HealthCare devices. Required for MDL active status.',
      'mdl_renewal', 'annual', 'upcoming', 'health_canada',
      45, 'medium', 'Compliance Lead'),
-
     ('00819320020014', 'Impella CP - initial recall filing',
      'Initial recall notification filed with Health Canada within 72hr of discovery. Filed 2026-04-15.',
      'recall_notification', 'one_time', 'completed', 'health_canada',
      -30, 'critical', 'Compliance Lead'),
-
     (NULL, 'Annual QMS management review (2025)',
      'Top management review of QMS performance per ISO 13485 clause 5.6. Completed 2026-03-28.',
      'qms_audit', 'annual', 'completed', 'internal_qms',

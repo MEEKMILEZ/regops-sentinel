@@ -4,11 +4,12 @@ import logging
 import os
 import threading
 from contextlib import asynccontextmanager
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from psycopg.rows import dict_row
 from pydantic import BaseModel
 from .auth import CurrentUser, current_user
 from .audit import AuditListResponse, list_audit_events
+from .device_upload import create_upload_job, get_upload_job
 from .config import LOG_LEVEL, S3_AUDIT_BUCKET, get_azure_openai_credentials
 from .db import init_schema, get_connection
 from .worker import poll_loop
@@ -246,6 +247,70 @@ def list_devices(
     except Exception as e:
         logger.exception("list_devices failed for tenant %s", user.tenant_id)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ===== Phase 5B.2: Device CSV upload (async) =====
+
+# Hard cap on CSV payload size in bytes. 1MB is ~10,000 device rows in
+# MDALL format, an order of magnitude more than any realistic demo
+# upload. Anything bigger gets rejected at the HTTP layer before we
+# read it into memory.
+DEVICE_UPLOAD_MAX_BYTES = 1024 * 1024
+
+
+@app.post("/devices/upload", status_code=202)
+async def post_devices_upload(
+    request: Request,
+    user: CurrentUser = Depends(current_user),
+):
+    """Accept a CSV body, create an upload job, return its job_id.
+
+    Returns 202 Accepted because the work happens asynchronously. The
+    caller polls GET /devices/upload/{job_id} for progress.
+    """
+    body = await request.body()
+    if len(body) > DEVICE_UPLOAD_MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"upload exceeds max size of {DEVICE_UPLOAD_MAX_BYTES} bytes",
+        )
+    if not body:
+        raise HTTPException(status_code=400, detail="empty payload")
+
+    try:
+        payload_csv = body.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="payload must be UTF-8 CSV")
+
+    filename = request.headers.get("x-upload-filename")
+
+    try:
+        job_id = create_upload_job(
+            tenant_id=user.tenant_id,
+            payload_csv=payload_csv,
+            filename=filename,
+        )
+    except Exception:
+        logger.exception("failed to create device upload job")
+        raise HTTPException(status_code=500, detail="failed to queue upload")
+
+    return {"job_id": job_id, "status": "queued"}
+
+
+@app.get("/devices/upload/{job_id}")
+def get_devices_upload(
+    job_id: str,
+    user: CurrentUser = Depends(current_user),
+):
+    """Return current state of an upload job. Tenant-scoped."""
+    job = get_upload_job(tenant_id=user.tenant_id, job_id=job_id)
+    if not job:
+        # Cross-tenant lookups, malformed UUIDs, and not-found all return
+        # 404 to avoid leaking job existence to unauthorised callers.
+        raise HTTPException(status_code=404, detail="job not found")
+    return job
+
+
 
 
 @app.get("/devices/{device_id}")
