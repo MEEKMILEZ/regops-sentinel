@@ -182,9 +182,8 @@ export function ObligationRowActions({
             <DialogTitle>Mark obligation as complete?</DialogTitle>
             <DialogDescription>
               This sets the status to <strong>completed</strong> and stamps
-              the completion time. An audit blob with the before/after
-              snapshot is written to the immutable audit log. You can edit
-              the obligation later to revert the status if needed.
+              the completion time. You can edit the obligation later to
+              revert the status if needed.
             </DialogDescription>
           </DialogHeader>
           <div className="text-muted-foreground py-2 text-sm">
@@ -224,10 +223,7 @@ export function ObligationRowActions({
           <DialogHeader>
             <DialogTitle>Delete obligation?</DialogTitle>
             <DialogDescription>
-              The obligation row will be removed from the operational
-              database. An audit blob with the full pre-deletion snapshot
-              is written to the immutable audit log first, so the
-              regulatory trail is preserved. The row itself cannot be
+              This obligation will be permanently removed and cannot be
               recovered through the UI.
             </DialogDescription>
           </DialogHeader>

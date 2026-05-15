@@ -290,9 +290,8 @@ export function ObligationForm({
         <DialogHeader>
           <DialogTitle>{titleText}</DialogTitle>
           <DialogDescription>
-            All state-changing actions write an immutable audit blob to
-            the Object-Lock-protected log. Required fields are marked
-            with <span className="text-destructive">*</span>.
+            Required fields are marked with{" "}
+            <span className="text-destructive">*</span>.
           </DialogDescription>
         </DialogHeader>
 
