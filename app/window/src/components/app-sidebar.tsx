@@ -9,6 +9,7 @@ import {
   Bell,
   FileText,
   Boxes,
+  ClipboardList,
   Shield,
   Settings,
   LogOut,
@@ -36,15 +37,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
-// Navigation items shown in the main sidebar group.
-// Only routes that are actually wired and gated render here. Obligations
-// remains intentionally omitted until Phase 5C ships; showing a link
-// that 404s would be worse than not showing it at all. Audit log
-// shipped in Phase 5A, Devices catalog (read-only) shipped in Phase 5B.
+// Navigation items shown in the main sidebar group. Audit log shipped
+// in Phase 5A, Devices catalog (read-only) in Phase 5B, Obligations
+// tracker (read-only) in Phase 5C. All four routes are wired and
+// tenant-gated by Cognito middleware + Brain JWT verification.
 const navItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Alerts", url: "/alerts", icon: Bell },
   { title: "Devices", url: "/devices", icon: Boxes },
+  { title: "Obligations", url: "/obligations", icon: ClipboardList },
   { title: "Audit log", url: "/audit", icon: FileText },
 ]
 

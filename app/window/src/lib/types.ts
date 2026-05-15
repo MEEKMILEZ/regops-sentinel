@@ -138,3 +138,104 @@ export interface DevicesListResponse {
   count: number
   devices: DeviceListItem[]
 }
+
+// --- Obligation types ---------------------------------------------------
+//
+// The Brain's /obligations endpoint returns one entry per regulatory
+// task a compliance lead must track. Schema mirrors Health Canada CMDR
+// Section 60 reporting requirements + ISO 13485 quality management
+// obligations + FDA UDI submission cycles.
+//
+// device_id is nullable: some obligations are device-specific (MDL
+// renewal for a particular product), others are company-wide (annual
+// ISO 13485 internal audit). When device_id is set, the Brain also
+// joins the device record so the UI can show the brand name without a
+// second fetch.
+
+export type ObligationType =
+  | "mdl_renewal"
+  | "adverse_event_report"
+  | "recall_notification"
+  | "qms_audit"
+  | "post_market_surveillance"
+  | "udi_submission"
+  | "incident_investigation"
+
+export type ObligationFrequency =
+  | "one_time"
+  | "annual"
+  | "quarterly"
+  | "monthly"
+  | "as_required"
+
+export type ObligationStatus =
+  | "upcoming"
+  | "due_soon"
+  | "overdue"
+  | "in_progress"
+  | "completed"
+  | "not_applicable"
+
+export type ObligationSeverity = "critical" | "high" | "medium" | "low"
+
+export type RegulatoryBody =
+  | "health_canada"
+  | "fda"
+  | "iso_auditor"
+  | "internal_qms"
+
+export interface ObligationListItem {
+  obligation_id: number
+  tenant_id: string
+  device_id: number | null
+  title: string
+  description: string | null
+  obligation_type: ObligationType | string
+  frequency: ObligationFrequency | string
+  status: ObligationStatus | string
+  regulatory_body: RegulatoryBody | string | null
+  /** ISO 8601 timestamp. NULL for as_required obligations. */
+  due_at: string | null
+  severity_if_missed: ObligationSeverity | string
+  responsible_party: string | null
+  related_alert_id: number | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+  completed_at: string | null
+  /** Joined from devices table when device_id is set. */
+  device_brand_name: string | null
+  device_di: string | null
+}
+
+export interface ObligationsListResponse {
+  tenant_id: string
+  count: number
+  obligations: ObligationListItem[]
+}
+
+// --- Cross-table search types -------------------------------------------
+//
+// The Brain's /search endpoint returns a flat list of results across
+// alerts, devices, and obligations, ranked by ts_rank score. Each item
+// carries its `kind` so the UI can render the right icon/label and
+// follow the right route on click.
+
+export type SearchKind = "alert" | "device" | "obligation"
+
+export interface SearchResultItem {
+  kind: SearchKind | string
+  id: number
+  title: string
+  subtitle: string | null
+  url: string
+  badge: string | null
+  /** ts_rank score from Postgres. Higher = more relevant. */
+  rank: number
+}
+
+export interface SearchResponse {
+  query: string
+  count: number
+  results: SearchResultItem[]
+}

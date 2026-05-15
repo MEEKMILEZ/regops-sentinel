@@ -2,10 +2,10 @@
 
 import * as React from "react"
 import { usePathname } from "next/navigation"
-import { Search } from "lucide-react"
 
-import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
+
+import { SearchBar } from "@/components/search/search-bar"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 
 // Maps top-level URL segments to human-friendly page titles.
@@ -32,15 +32,7 @@ export function SiteHeader() {
       <SidebarTrigger className="-ml-1" />
       <Separator orientation="vertical" className="h-4" />
       <h1 className="text-sm font-medium">{title}</h1>
-      <div className="ml-auto flex w-full max-w-sm items-center gap-2">
-        <div className="relative w-full">
-          <Search className="text-muted-foreground absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
-          <Input
-            placeholder="Search alerts, devices..."
-            className="w-full pl-8"
-          />
-        </div>
-      </div>
+      <SearchBar />
     </header>
   )
 }
