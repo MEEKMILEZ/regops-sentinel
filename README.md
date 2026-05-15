@@ -1,8 +1,12 @@
 # RegOps Sentinel
 
+[![Brain CI](https://github.com/MEEKMILEZ/regops-sentinel/actions/workflows/brain-ci.yml/badge.svg)](https://github.com/MEEKMILEZ/regops-sentinel/actions/workflows/brain-ci.yml)
+[![Window CI](https://github.com/MEEKMILEZ/regops-sentinel/actions/workflows/window-ci.yml/badge.svg)](https://github.com/MEEKMILEZ/regops-sentinel/actions/workflows/window-ci.yml)
+[![Terraform CI](https://github.com/MEEKMILEZ/regops-sentinel/actions/workflows/terraform-ci.yml/badge.svg)](https://github.com/MEEKMILEZ/regops-sentinel/actions/workflows/terraform-ci.yml)
+
 A regulatory intelligence platform for Canadian medical device distributors. Continuously watches Health Canada signals (recalls, drug shortages, MedEffect adverse events), classifies them with GPT-4o through Azure OpenAI, and delivers tenant-scoped alerts with an immutable audit trail.
 
-**Status:** Through Phase 5B.2. Ingestion, classification, audit log, device catalog, obligations tracker, full-text search, audit-bucket Object Lock, and async CSV upload all shipped end-to-end. UI live for all four data domains. Remaining: obligations create/edit (5C.2), formal CI/CD (Phase 8), and the remaining observability captures.
+**Status:** Through Phase 5C.3 + Phase 8 part 1 (CI). Ingestion, classification, audit log, device catalog, obligations tracker (full CRUD with audit), full-text search, audit-bucket Object Lock, async CSV upload, and dependency security refresh all shipped end-to-end. UI live for all four data domains including the obligation create / edit / complete / delete flows. CI workflows green on every push. Remaining: architecture diagram + remaining observability captures (Phase 8 part 2), formal CI/CD auto-deploy (deferred to a focused session).
 
 ---
 
@@ -73,7 +77,7 @@ Window (Next.js on app server, BFF to the Brain)
        /obligations endpoints (no stub data anywhere)
 ```
 
-A formal architecture diagram is planned for Phase 8.
+See [docs/architecture.md](docs/architecture.md) for the formal architecture diagrams (high-level system view + the alert pipeline and user-action data flows) plus the cross-cutting design rationale: trust boundaries, tenant isolation, audit immutability, observability.
 
 ### What the Brain actually does
 
