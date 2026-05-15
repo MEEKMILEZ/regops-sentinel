@@ -124,6 +124,22 @@ resource "aws_iam_role_policy" "brain_task" {
           "ssmmessages:OpenDataChannel"
         ]
         Resource = "*"
+      },
+      # OpenTelemetry / X-Ray trace export. The brain emits OTLP-format
+      # traces to the local ADOT collector sidecar over loopback; the
+      # ADOT collector then assumes this task role's credentials and
+      # forwards the traces to AWS X-Ray. Without these permissions the
+      # ADOT collector can run but cannot ship traces.
+      {
+        Effect = "Allow"
+        Action = [
+          "xray:PutTraceSegments",
+          "xray:PutTelemetryRecords",
+          "xray:GetSamplingRules",
+          "xray:GetSamplingTargets",
+          "xray:GetSamplingStatisticSummaries"
+        ]
+        Resource = "*"
       }
     ]
   })
@@ -165,7 +181,17 @@ resource "aws_ecs_task_definition" "brain" {
         { name = "DB_SECRET_ARN", value = aws_secretsmanager_secret.db_master.arn },
         { name = "AZURE_OPENAI_SECRET_ARN", value = data.aws_secretsmanager_secret.azure_openai.arn },
         { name = "AUDIT_KMS_KEY_ARN", value = aws_kms_key.main.arn },
-        { name = "COGNITO_APP_CLIENT_IDS", value = "${aws_cognito_user_pool_client.web.id},${aws_cognito_user_pool_client.cli.id}" }
+        { name = "COGNITO_APP_CLIENT_IDS", value = "${aws_cognito_user_pool_client.web.id},${aws_cognito_user_pool_client.cli.id}" },
+        # OpenTelemetry: send traces over loopback (UDP/HTTP 4318) to
+        # the ADOT collector sidecar in this same task. opentelemetry-distro
+        # auto-configures the tracer provider + OTLP HTTP exporter from
+        # this env var; no in-code wiring needed.
+        { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = "http://127.0.0.1:4318" },
+        # Service name shows up as the X-Ray service in the console.
+        { name = "OTEL_SERVICE_NAME", value = "regops-sentinel-brain" },
+        # Resource attributes ride along on every span; useful filter
+        # facets in the X-Ray UI.
+        { name = "OTEL_RESOURCE_ATTRIBUTES", value = "deployment.environment=${var.environment},service.namespace=regops-sentinel" }
       ]
       logConfiguration = {
         logDriver = "awslogs"
@@ -181,6 +207,45 @@ resource "aws_ecs_task_definition" "brain" {
         timeout     = 10
         retries     = 3
         startPeriod = 60
+      }
+    },
+    # ADOT (AWS Distro for OpenTelemetry) Collector sidecar (Phase 6B).
+    #
+    # Receives OTLP traces from the brain over loopback (4318/HTTP and
+    # 4317/gRPC are both opened by the default config), then ships them
+    # to AWS X-Ray using the task role's xray:PutTraceSegments
+    # permission added above.
+    #
+    # The collector uses the default ECS config (--config=/etc/ecs/
+    # ecs-default-config.yaml): OTLP receiver enabled, AWS X-Ray
+    # exporter enabled, no sampling tweaks. Sampling rules tune in
+    # the X-Ray console (Sampling Rules), not the collector config,
+    # so they can change without a redeploy.
+    #
+    # essential=false deliberately: if the collector dies, traces are
+    # lost but the brain keeps serving requests. The brain's OTel
+    # exporter has a local buffer and exporter-side retry.
+    {
+      name      = "adot-collector"
+      image     = "public.ecr.aws/aws-observability/aws-otel-collector:v0.40.0"
+      essential = false
+      cpu       = 64
+      memory    = 256
+      portMappings = [
+        { containerPort = 4317, hostPort = 4317, protocol = "tcp" },
+        { containerPort = 4318, hostPort = 4318, protocol = "tcp" }
+      ]
+      command = ["--config=/etc/ecs/ecs-default-config.yaml"]
+      environment = [
+        { name = "AWS_REGION", value = "ca-central-1" }
+      ]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          awslogs-group         = aws_cloudwatch_log_group.brain.name
+          awslogs-region        = "ca-central-1"
+          awslogs-stream-prefix = "adot"
+        }
       }
     }
   ])

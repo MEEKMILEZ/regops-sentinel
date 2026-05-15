@@ -58,6 +58,50 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="RegOps Sentinel Brain", version="0.2.0", lifespan=lifespan)
 
 
+# OpenTelemetry instrumentation (Phase 6B).
+#
+# Initialised conditionally: only when OTEL_EXPORTER_OTLP_ENDPOINT is
+# set in the environment (the ECS task sets this to the ADOT collector
+# sidecar at http://127.0.0.1:4318). Local dev runs without the env var
+# set and skips OTel entirely so devs do not need a running collector
+# to develop against the brain.
+#
+# Wrapped in try/except: if OTel initialization fails for any reason
+# (transitive dep conflict, broken instrumentation in a release), the
+# brain still starts and serves traffic - we just lose tracing. Tracing
+# is observability, not a hard dependency.
+#
+# /health and /health/db excluded from FastAPI auto-instrumentation:
+# these fire every 30s from ECS container health checks, which would
+# flood the trace store with no diagnostic value. Real user requests
+# are still traced.
+#
+# The opentelemetry-distro package auto-configures the tracer provider
+# and the OTLP exporter from environment variables, so we do not need
+# to manually wire those - just call the instrumentors.
+def _instrument_otel(app: FastAPI) -> None:
+    if not os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
+        logger.info("OTEL_EXPORTER_OTLP_ENDPOINT not set; skipping OpenTelemetry init")
+        return
+    try:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        from opentelemetry.instrumentation.botocore import BotocoreInstrumentor
+        from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor
+        from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+
+        FastAPIInstrumentor.instrument_app(app, excluded_urls="/health,/health/db")
+        BotocoreInstrumentor().instrument()
+        PsycopgInstrumentor().instrument()
+        HTTPXClientInstrumentor().instrument()
+
+        logger.info("OpenTelemetry instrumentation initialized")
+    except Exception as e:
+        logger.error(f"OpenTelemetry init failed; continuing without tracing: {e}")
+
+
+_instrument_otel(app)
+
+
 # CORS note: we do NOT add CORSMiddleware here. The Window app calls this
 # service through its server-side BFF route handlers (Next.js -> Brain over
 # the AWS network), not directly from the browser, so browsers never see

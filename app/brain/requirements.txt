@@ -26,3 +26,23 @@ cachetools==6.2.1
 # Holding back on the 0.49.x line rather than 1.x to avoid API-stability
 # breakage; 0.49.1+ is the version that closes all three CVEs.
 starlette>=0.49.1,<1.0.0
+# OpenTelemetry distributed tracing (Phase 6B).
+#
+# We instrument the brain with OpenTelemetry rather than the AWS X-Ray
+# SDK because X-Ray SDK 2.15.0 does not ship a FastAPI/Starlette
+# middleware (only Django/Flask/Bottle/aiohttp). OpenTelemetry has
+# mature FastAPI support, is the current industry-standard tracing
+# protocol, and exports to AWS X-Ray transparently via the ADOT
+# (AWS Distro for OpenTelemetry) Collector sidecar in our ECS task.
+#
+# Versioning note: opentelemetry-api is on 1.x but instrumentations
+# are still on 0.x (0.62b1) because they are not yet declared stable.
+# This is the official release model; all packages on the OpenTelemetry
+# release train share a release date. We pin all of them to the same
+# 2026-04-24 release to keep them consistent.
+opentelemetry-distro==0.62b1
+opentelemetry-exporter-otlp==1.41.1
+opentelemetry-instrumentation-fastapi==0.62b1
+opentelemetry-instrumentation-botocore==0.62b1
+opentelemetry-instrumentation-psycopg==0.62b1
+opentelemetry-instrumentation-httpx==0.62b1
