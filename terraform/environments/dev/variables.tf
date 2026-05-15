@@ -87,3 +87,23 @@ variable "db_deletion_protection" {
   type    = bool
   default = false
 }
+# =====================================================================
+# Phase 7: digest Lambda variables
+# =====================================================================
+# Recipient list is a comma-separated string of email addresses. They
+# must all be SES-verified while the account is in sandbox mode.
+variable "digest_recipients" {
+  type        = string
+  description = "Comma-separated list of email recipients for the weekly digest"
+  default     = "paschalnnenna@hotmail.com"
+}
+
+# The "From:" address for the digest email. Must be a verified SES
+# sender identity in the same region as the Lambda. In sandbox mode
+# this address ALSO has to be in the recipient list of verified
+# identities (SES requires both sides verified in sandbox).
+variable "digest_from_address" {
+  type        = string
+  description = "SES-verified email address used as the From: on digests"
+  default     = "paschalnnenna@hotmail.com"
+}

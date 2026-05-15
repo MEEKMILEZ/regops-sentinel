@@ -1,0 +1,11 @@
+# Phase 7: Weekly digest Lambda dependencies.
+#
+# psycopg[binary] 3.2.x is the same major release the brain uses.
+# Pinning to a specific minor version stays in lockstep with the
+# brain image so a future schema change keeps both at the same
+# client driver behaviour.
+#
+# boto3 is provided by the Lambda Python 3.12 runtime - no need
+# to package it (and packaging it would push us past the 250 MB
+# unzipped limit unnecessarily).
+psycopg[binary]==3.2.3
