@@ -8,7 +8,8 @@ from fastapi import Depends, FastAPI, HTTPException
 from psycopg.rows import dict_row
 from pydantic import BaseModel
 from .auth import CurrentUser, current_user
-from .config import LOG_LEVEL, get_azure_openai_credentials
+from .audit import AuditListResponse, list_audit_events
+from .config import LOG_LEVEL, S3_AUDIT_BUCKET, get_azure_openai_credentials
 from .db import init_schema, get_connection
 from .worker import poll_loop
 from .classifier import classify
@@ -164,5 +165,41 @@ def get_alert(
             "get_alert failed for tenant %s, alert %s",
             user.tenant_id,
             alert_id,
+        )
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/audit", response_model=AuditListResponse)
+def list_audit(
+    user: CurrentUser = Depends(current_user),
+    limit: int = 50,
+    cursor: str | None = None,
+):
+    """List audit-log events for the caller's tenant.
+
+    Each event corresponds to one immutable JSON blob written to S3 by
+    the worker after a classification. tenant_id comes from the verified
+    ID token's custom:tenant_id claim - there is no tenant_id query
+    parameter and the S3 prefix is built server-side, so a token holder
+    for tenant A cannot read tenant B's audit trail.
+
+    Pagination is cursor-based (opaque token). Pass the next_cursor from
+    a previous response as the cursor query parameter to fetch the next
+    page. Default page size is 50 (matches AWS CloudTrail LookupEvents);
+    max is 100.
+    """
+    try:
+        return list_audit_events(
+            tenant_id=user.tenant_id,
+            bucket=S3_AUDIT_BUCKET,
+            limit=limit,
+            cursor=cursor,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(
+            "list_audit failed for tenant %s",
+            user.tenant_id,
         )
         raise HTTPException(status_code=500, detail=str(e))

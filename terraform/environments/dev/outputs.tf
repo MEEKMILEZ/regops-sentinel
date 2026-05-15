@@ -74,6 +74,9 @@ output "cognito_user_pool_arn" {
 output "cognito_user_pool_client_id" {
   value = aws_cognito_user_pool_client.web.id
 }
+output "cognito_cli_client_id" {
+  value = aws_cognito_user_pool_client.cli.id
+}
 output "sqs_ingestion_url" {
   value = aws_sqs_queue.ingestion.url
 }

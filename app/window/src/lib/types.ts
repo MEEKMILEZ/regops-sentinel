@@ -26,6 +26,8 @@ export interface AlertListItem {
 export interface AlertDetail extends AlertListItem {
   // Detail rows include everything in the alerts table. Optional fields
   // because not every alert has every column populated.
+  summary?: string | null
+  url?: string | null
   body?: string | null
   source_url?: string | null
   reasoning?: string | null
@@ -54,4 +56,43 @@ export interface BffError {
     | "internal_error"
   status: number
   details?: string
+}
+
+// --- Audit log types -----------------------------------------------------
+//
+// The Brain's /audit endpoint returns one entry per immutable JSON blob
+// written to S3 by the worker after classification. Each blob is the
+// auditable record of "we saw item X from source Y, classified it as Z."
+//
+// Shape mirrors AWS CloudTrail LookupEvents and Fastio audit log APIs:
+// events list + cursor envelope.
+
+export interface AuditEventSummary {
+  /** Opaque URL-safe base64 of the S3 key. Use as path param to detail
+   * endpoint (Phase 5A.2). */
+  audit_id: string
+  /** ISO 8601 timestamp recorded inside the audit blob. */
+  audit_timestamp: string
+  /** Watcher source, e.g. 'health-canada-medeffect'. */
+  source: string
+  /** Upstream item id from the source. */
+  external_id: string
+  /** Item title at time of classification. */
+  title: string
+  /** Classifier verdict. Same vocabulary as alerts. */
+  classification: Classification | "" | string
+  /** Urgency band. Same vocabulary as alerts. */
+  urgency: Urgency | "" | string
+  /** Audit blob size in bytes. */
+  size_bytes: number
+  /** ISO 8601 timestamp from S3 object LastModified. */
+  last_modified: string
+  /** KMS key id the object was encrypted under. Short uuid form. */
+  encryption_key_id: string | null
+}
+
+export interface AuditListResponse {
+  events: AuditEventSummary[]
+  next_cursor: string | null
+  has_more: boolean
 }

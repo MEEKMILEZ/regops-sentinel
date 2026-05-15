@@ -7,6 +7,7 @@ import { signOut, getCurrentUser, fetchUserAttributes } from "aws-amplify/auth"
 import {
   LayoutDashboard,
   Bell,
+  FileText,
   Shield,
   Settings,
   LogOut,
@@ -35,13 +36,14 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 // Navigation items shown in the main sidebar group.
-// Only routes that are actually wired and gated render here. Obligations,
-// Devices, and Audit Log were planned for Phase 5 and intentionally omitted
+// Only routes that are actually wired and gated render here. Obligations
+// and Devices were planned for Phase 5 and remain intentionally omitted
 // until the corresponding pages exist; showing a link that 404s would be
-// worse than not showing it at all.
+// worse than not showing it at all. Audit log shipped in Phase 5A.
 const navItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Alerts", url: "/alerts", icon: Bell },
+  { title: "Audit log", url: "/audit", icon: FileText },
 ]
 
 interface SessionUser {

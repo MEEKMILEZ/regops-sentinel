@@ -99,9 +99,9 @@ export function ClassificationBreakdownChart({
                       borderRadius: "0.5rem",
                       fontSize: "0.75rem",
                     }}
-                    formatter={(value: number, name: string) => [
-                      `${value} alerts`,
-                      name,
+                    formatter={(value, name) => [
+                      `${value ?? 0} alerts`,
+                      String(name),
                     ]}
                   />
                 </PieChart>

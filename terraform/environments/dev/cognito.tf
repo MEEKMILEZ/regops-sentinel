@@ -90,6 +90,32 @@ resource "aws_cognito_user_pool_client" "web" {
   }
 }
 
+resource "aws_cognito_user_pool_client" "cli" {
+  name         = "${local.name_prefix}-cli-client-${local.full_suffix}"
+  user_pool_id = aws_cognito_user_pool.main.id
+
+  generate_secret = false
+
+  # CLI-only client. Browser-facing flows live on the `web` client and use
+  # SRP. This client exists for smoke tests and operator scripts that
+  # cannot implement SRP cleanly.
+  explicit_auth_flows = [
+    "ALLOW_USER_PASSWORD_AUTH",
+    "ALLOW_REFRESH_TOKEN_AUTH"
+  ]
+
+  prevent_user_existence_errors = "ENABLED"
+
+  access_token_validity  = 60
+  id_token_validity      = 60
+  refresh_token_validity = 1
+
+  token_validity_units {
+    access_token  = "minutes"
+    id_token      = "minutes"
+    refresh_token = "days"
+  }
+}
 resource "aws_cognito_user_pool_domain" "main" {
   domain       = "${local.name_prefix}-${local.full_suffix}"
   user_pool_id = aws_cognito_user_pool.main.id
