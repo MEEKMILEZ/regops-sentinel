@@ -16,17 +16,33 @@ on:
       - ".github/workflows/brain-ci.yml"
 
 # Cancel any in-progress run of this workflow for the same branch when
-# a new commit lands. Standard pattern; saves CI minutes on rapid pushes.
+# a new commit lands. Standard pattern; saves CI minutes on rapid
+# pushes.
 concurrency:
   group: brain-ci-${{ github.ref }}
   cancel-in-progress: true
+
+# Top-level permissions block. id-token: write is REQUIRED for OIDC -
+# without it, GitHub won't mint the JWT that AWS uses to verify the
+# workflow's identity. contents: read is the default minimum.
+# Documented at:
+# https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/about-security-hardening-with-openid-connect
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ca-central-1
+  ECR_REPOSITORY: regops-sentinel-dev-brain-1a8df723
+  ECS_CLUSTER: regops-sentinel-dev-cluster-1a8df723
+  ECS_SERVICE: regops-sentinel-dev-brain-1a8df723
+  AWS_DEPLOY_ROLE_ARN: arn:aws:iam::575751781190:role/regops-sentinel-dev-github-actions-deploy-1a8df723
 
 jobs:
   brain-checks:
     name: Lint + security audit + compile + docker build
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -40,8 +56,8 @@ jobs:
       - name: Install pip-audit
         run: python -m pip install --upgrade pip pip-audit
 
-      # pip-audit is the OSS supply-chain scanner maintained by the PyPA
-      # security team. It cross-references pinned versions in
+      # pip-audit is the OSS supply-chain scanner maintained by the
+      # PyPA security team. It cross-references pinned versions in
       # requirements.txt against the PyPI Advisory Database. Any CVE
       # with a known fix version fails the build.
       - name: Audit Python dependencies for known CVEs
@@ -58,13 +74,120 @@ jobs:
         run: |
           python -m compileall -q app/brain/src
 
-      # Build the Docker image as a sanity check. We do not push - the
-      # production deploy goes through CodeBuild on the AWS side. This
-      # step just verifies the Dockerfile is still valid and the base
-      # image still resolves.
-      - name: Docker build (dry run, no push)
+      # Build the Docker image. On PRs this is a dry-run sanity check.
+      # On push-to-main, the deploy job below rebuilds and pushes;
+      # we don't share the image between jobs because that would
+      # require a registry round-trip anyway.
+      - name: Docker build (sanity check)
         run: |
           docker build \
             --tag regops-sentinel-brain:ci-${{ github.sha }} \
             --file app/brain/Dockerfile \
             app/brain
+
+  # ----------------------------------------------------------------
+  # Deploy job: only runs on push to main, only if brain-checks passed.
+  # Uses OIDC to assume the deploy role - NO long-lived AWS credentials
+  # stored in the repo. Industry-standard "keyless deploy" pattern.
+  # ----------------------------------------------------------------
+  brain-deploy:
+    name: Push image and roll ECS service
+    needs: brain-checks
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # The OIDC handshake. configure-aws-credentials uses GitHub's
+      # JWT (signed by GitHub) to assume the IAM role; STS hands back
+      # short-lived credentials (1 hour) injected as env vars for
+      # subsequent steps. See:
+      # https://github.com/aws-actions/configure-aws-credentials
+      - name: Assume AWS deploy role via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: gha-brain-deploy-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ECR login: aws-actions/amazon-ecr-login wraps
+      # `aws ecr get-login-password` and configures docker to use it.
+      # The login token expires in 12 hours.
+      - name: Log in to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Build, tag with both the short SHA and 'latest', and push.
+      # The :sha-<commit> tag is the immutable reference; :latest is
+      # a convenience for humans inspecting ECR.
+      - name: Build, tag, and push image to ECR
+        id: build-and-push
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: sha-${{ github.sha }}
+        run: |
+          set -euxo pipefail
+
+          docker build \
+            --tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            --tag $ECR_REGISTRY/$ECR_REPOSITORY:latest \
+            --file app/brain/Dockerfile \
+            app/brain
+
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+          # Expose the image URI as an output for the next step
+          echo "image_uri=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      # Force ECS to roll a new deployment. Because the task
+      # definition references the :latest tag (or whatever the
+      # service's current task def has), and `--force-new-deployment`
+      # tells ECS to pull a fresh image and replace running tasks,
+      # this picks up the just-pushed image.
+      - name: Roll ECS brain service
+        run: |
+          set -euxo pipefail
+          aws ecs update-service \
+            --cluster $ECS_CLUSTER \
+            --service $ECS_SERVICE \
+            --force-new-deployment \
+            --query 'service.{name:serviceName,taskdef:taskDefinition,desired:desiredCount,running:runningCount}' \
+            --output json
+
+      # Wait for the rollout to actually finish - up to 10 minutes.
+      # `aws ecs wait services-stable` polls until runningCount ==
+      # desiredCount AND all deployments are PRIMARY+steady.
+      # Without this step, the workflow could pass green while a
+      # broken image is still mid-roll and ECS hasn't noticed yet.
+      - name: Wait for ECS rollout to stabilize
+        run: |
+          set -euxo pipefail
+          echo "Waiting for ECS service to stabilize (up to 10 min)..."
+          aws ecs wait services-stable \
+            --cluster $ECS_CLUSTER \
+            --services $ECS_SERVICE
+          echo "Service stable."
+
+      # Final health check from the public ALB - proves the new image
+      # is not just running but actually answering requests.
+      - name: Smoke-test brain health endpoint
+        run: |
+          set -euxo pipefail
+          ALB_DNS="rgops-brain-alb-1a8df723-954473560.ca-central-1.elb.amazonaws.com"
+
+          for i in 1 2 3 4 5; do
+            echo "Health check attempt $i..."
+            RESP=$(curl -fsS "http://$ALB_DNS/health" || true)
+            echo "Response: $RESP"
+            if [ "$RESP" = '{"status":"ok"}' ]; then
+              echo "Brain is healthy."
+              exit 0
+            fi
+            sleep 10
+          done
+
+          echo "Brain failed health check after 5 attempts" >&2
+          exit 1
