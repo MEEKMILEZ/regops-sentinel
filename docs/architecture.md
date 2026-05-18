@@ -169,7 +169,7 @@ sequenceDiagram
     W->>W: Extract Cognito ID token
     Note over W: Token never sent to browser; server-side only
 
-    W->>ALB: POST /obligations/123/complete Authorization: Bearer <id_token>
+    W->>ALB: POST /obligations/123/complete Authorization: Bearer id_token
     ALB->>B: Forward
 
     B->>C: Fetch JWKS (cached)
