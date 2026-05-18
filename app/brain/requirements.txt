@@ -42,6 +42,11 @@ starlette>=0.49.1,<1.0.0
 # 2026-04-24 release to keep them consistent.
 opentelemetry-distro==0.62b1
 opentelemetry-exporter-otlp==1.41.1
+# AWS X-Ray-compatible trace ID generator (Phase 6B fix). X-Ray rejects
+# spans whose trace ID is not a valid Unix-timestamp-prefixed 128-bit ID,
+# so we cannot use the default random ID generator. Activated via the
+# OTEL_PYTHON_ID_GENERATOR=xray env var which opentelemetry-distro reads.
+opentelemetry-sdk-extension-aws==2.0.2
 opentelemetry-instrumentation-fastapi==0.62b1
 opentelemetry-instrumentation-botocore==0.62b1
 opentelemetry-instrumentation-psycopg==0.62b1

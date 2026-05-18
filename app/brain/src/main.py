@@ -45,6 +45,15 @@ def start_worker_thread():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Brain starting up")
+    # Initialize OpenTelemetry HERE, not at module load time.
+    # uvicorn --workers 2 forks the parent process to create workers.
+    # When OTel was initialized at module load (before fork), the
+    # parent's BatchSpanProcessor background thread was created but did
+    # not survive fork into workers - so workers had a TracerProvider
+    # with a dead exporter thread that silently dropped all spans.
+    # Calling _instrument_otel inside lifespan ensures each worker
+    # initializes its own TracerProvider + live exporter AFTER fork.
+    _instrument_otel(app)
     try:
         init_schema()
     except Exception as e:
@@ -84,22 +93,46 @@ def _instrument_otel(app: FastAPI) -> None:
         logger.info("OTEL_EXPORTER_OTLP_ENDPOINT not set; skipping OpenTelemetry init")
         return
     try:
+        from opentelemetry import trace
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+        from opentelemetry.sdk.extension.aws.trace import AwsXRayIdGenerator
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
         from opentelemetry.instrumentation.botocore import BotocoreInstrumentor
         from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor
         from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+
+        # Phase 6B fix: when we launch without the opentelemetry-instrument
+        # wrapper (we use plain `uvicorn` in the Dockerfile), the auto-config
+        # that reads OTEL_PYTHON_ID_GENERATOR=xray never runs. AWS X-Ray
+        # rejects spans whose trace IDs are not Unix-timestamp-prefixed, so
+        # we wire the AwsXRayIdGenerator into our TracerProvider manually.
+        #
+        # Also: manually constructing the TracerProvider bypasses the
+        # auto-attachment of the OTLP BatchSpanProcessor that
+        # opentelemetry-distro normally adds. Without a SpanProcessor,
+        # spans have nowhere to go and are silently dropped. We attach
+        # BatchSpanProcessor(OTLPSpanExporter) ourselves so spans actually
+        # flow to the ADOT collector sidecar over OTLP/HTTP.
+        provider = TracerProvider(id_generator=AwsXRayIdGenerator())
+        provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+        trace.set_tracer_provider(provider)
 
         FastAPIInstrumentor.instrument_app(app, excluded_urls="/health,/health/db")
         BotocoreInstrumentor().instrument()
         PsycopgInstrumentor().instrument()
         HTTPXClientInstrumentor().instrument()
 
-        logger.info("OpenTelemetry instrumentation initialized")
+        logger.info("OpenTelemetry instrumentation initialized with AwsXRayIdGenerator")
     except Exception as e:
         logger.error(f"OpenTelemetry init failed; continuing without tracing: {e}")
 
 
-_instrument_otel(app)
+# NOTE: _instrument_otel(app) is NOT called here at module load anymore.
+# It is now called inside the lifespan handler (above), which runs AFTER
+# uvicorn's worker fork, so the BatchSpanProcessor exporter thread is
+# alive in each worker process. See lifespan() for details.
 
 
 # CORS note: we do NOT add CORSMiddleware here. The Window app calls this
