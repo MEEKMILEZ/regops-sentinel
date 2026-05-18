@@ -97,9 +97,9 @@ the user's Alerts table.
 ```mermaid
 sequenceDiagram
     autonumber
-    participant W as Watcher Lambda<br/>(e.g. recalls)
+    participant W as Watcher Lambda (e.g. recalls)
     participant Q as SQS
-    participant B as Brain<br/>(SQS worker thread)
+    participant B as Brain (SQS worker thread)
     participant AI as Azure OpenAI
     participant DB as RDS Postgres
     participant S3 as S3 audit bucket
@@ -155,10 +155,10 @@ obligation) takes from the browser to the immutable audit log.
 sequenceDiagram
     autonumber
     participant U as User Browser
-    participant W as Window<br/>(Next.js BFF route)
+    participant W as Window (Next.js BFF route)
     participant C as Cognito
     participant ALB as ALB
-    participant B as Brain<br/>(FastAPI)
+    participant B as Brain (FastAPI)
     participant DB as RDS Postgres
     participant S3 as S3 audit bucket
 
