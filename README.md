@@ -185,34 +185,6 @@ GOVERNANCE mode (rather than COMPLIANCE) is the demo-environment choice — it a
 
 Enabling Object Lock on the existing bucket was done via an out-of-band `aws s3api put-object-lock-configuration` call rather than a Terraform-driven change. The reason: HashiCorp issue [#36529](https://github.com/hashicorp/terraform-provider-aws/issues/36529) — the AWS Terraform provider's `object_lock_enabled` argument forces bucket replacement on existing buckets, even though AWS itself supports in-place enablement via the API since November 2023. The Terraform resource for retention rules (`aws_s3_bucket_object_lock_configuration.audit`) manages the retention policy from this point forward, paired with a `lifecycle { ignore_changes = [object_lock_configuration] }` block on the bucket to prevent drift.
 
-## Selected screenshots
-
-Curated highlights from the build. The dashboard, the AI classification flow, multi-tenant isolation proof, immutable audit storage, observability, end-to-end recall lifecycle, and the weekly digest email.
-
-**Dashboard.** Real classifications from Health Canada feeds, urgency tiers, AI-filtered noise percentage.
-![Dashboard](screenshots/31-app-window-dashboard.png)
-
-**Alert detail.** The classification UX flow from list to detail page.
-![Alert detail](screenshots/33-app-window-alert-detail.png)
-
-**Obligations tracker.** Full create / edit / complete / delete on tenant-scoped regulatory obligations.
-![Obligations tracker](screenshots/34-app-window-obligation-tracker.png)
-
-**Tenant isolation.** Two users on the same brain, distinct tenants, distinct datasets. Cross-tenant queries return 404 because object existence is itself a tenant boundary.
-![Tenant isolation](screenshots/37-tenant-isolation-proof.png)
-
-**Immutable audit storage.** Audit blobs in S3 under tenant-prefixed paths, Object Lock retention applied, KMS-encrypted, versioned.
-![S3 audit blob](screenshots/27-aws-s3-audit-blob.png)
-
-**X-Ray service map.** OpenTelemetry instrumentation through the ADOT collector sidecar, spans reaching AWS X-Ray end-to-end.
-![X-Ray service map](screenshots/46-xray-service-map.png)
-
-**Health Canada recall lifecycle.** A single signal flowing from feed ingestion to classified alert in the UI.
-![End-to-end flow](screenshots/47-app-end-to-end-flow.png)
-
-**Weekly regulatory digest.** Scheduled Lambda summarizing the week's classifications, delivered through SES.
-![Weekly digest email](screenshots/48-app-weekly-digest-email.png)
-
 ## Phase status
 
 | Phase | Status |
@@ -239,7 +211,6 @@ Curated highlights from the build. The dashboard, the AI classification flow, mu
 
 Being honest about scope rather than hiding the gaps:
 
-- **Obligations create/edit UI** (`5C.2`). Currently the obligations tracker is read-only — you can browse the seeded set but not add or update from the UI. The backend is also read-only on this domain.
 - **Email and Slack notifications** for overdue obligations. No outbound channel; users have to look at the dashboard to know.
 - **Multi-tenant onboarding flow.** Two tenants (`tenant-acme-meddev` and `tenant-meditech-on`) are seeded directly into the database; a third would still need a Terraform change and manual Cognito user creation. No self-serve sign-up. Also: the SQS worker hardcodes `tenant_id = DEFAULT_TENANT` on writes (read-side tenant scoping is fully enforced from the JWT, but write-side multi-tenant routing is a known gap).
 - **Bulk actions, filters, exports.** The tables paginate but don't filter, sort beyond default, or export to CSV/PDF.
