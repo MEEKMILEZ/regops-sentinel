@@ -189,9 +189,9 @@ resource "aws_ecs_task_definition" "brain" {
         { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = "http://127.0.0.1:4318" },
         # Force HTTP/protobuf - Python SDK defaults to gRPC, which silently fails against an HTTP-only endpoint.
         { name = "OTEL_EXPORTER_OTLP_PROTOCOL", value = "http/protobuf" },
-          # Tells opentelemetry-distro to use the AWS X-Ray ID generator.
-          # X-Ray rejects W3C-format trace IDs (Phase 6B fix).
-          { name = "OTEL_PYTHON_ID_GENERATOR", value = "xray" },
+        # Tells opentelemetry-distro to use the AWS X-Ray ID generator.
+        # X-Ray rejects W3C-format trace IDs (Phase 6B fix).
+        { name = "OTEL_PYTHON_ID_GENERATOR", value = "xray" },
         # Service name shows up as the X-Ray service in the console.
         { name = "OTEL_SERVICE_NAME", value = "regops-sentinel-brain" },
         # Resource attributes ride along on every span; useful filter
