@@ -22,7 +22,9 @@ resource "aws_kms_key" "main" {
             "secretsmanager.amazonaws.com",
             "sqs.amazonaws.com",
             "dynamodb.amazonaws.com",
-            "logs.ca-central-1.amazonaws.com"
+            "logs.ca-central-1.amazonaws.com",
+            "cloudtrail.amazonaws.com",
+            "config.amazonaws.com"
           ]
         }
         Action = [
