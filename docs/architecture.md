@@ -167,7 +167,7 @@ sequenceDiagram
 
     W->>W: Read encrypted Amplify session cookie
     W->>W: Extract Cognito ID token
-    Note over W: Token never sent to browser; server-side only
+    Note over W: Token never sent to browser, server-side only
 
     W->>ALB: POST /obligations/123/complete Authorization: Bearer id_token
     ALB->>B: Forward
