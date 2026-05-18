@@ -33,6 +33,12 @@ RegOps Sentinel is the platform that does the plumbing.
 - OpenTelemetry instrumentation with the ADOT collector sidecar, exporting to AWS X-Ray
 - Keyless CI/CD via GitHub Actions OIDC: every push to `main` builds the brain image and deploys to ECS with no stored AWS access keys
 
+## Architecture at a glance
+
+![RegOps Sentinel architecture: Ingestion plane (Health Canada -> EventBridge -> Lambda -> SQS), Brain plane (Azure OpenAI + Brain on Fargate writing to RDS and S3 audit), Edge plane (ALB + Window + Cognito serving the compliance team)](docs/architecture/system-overview.svg)
+
+See [What's built > Architecture](#architecture) for the text-based view and [docs/architecture.md](docs/architecture.md) for the formal diagrams + design rationale.
+
 ## Market context
 
 This category exists. RegDesk, Rimsys, RegASK, Freyr RegIntel, Johner Institute, Vistaar, freya.intelligence — there's a real and growing market for "AI-powered regulatory intelligence" software in life sciences. Most of them target medical device manufacturers and pharmaceutical companies, with global multi-jurisdictional coverage. RegOps Sentinel is narrower in two specific ways:

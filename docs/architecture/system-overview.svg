@@ -1,0 +1,234 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 680 680" role="img" aria-labelledby="title desc">
+<title id="title">RegOps Sentinel system architecture</title>
+<desc id="desc">Three-plane left-to-right architecture: Ingestion plane (Health Canada feeds, EventBridge schedule, Lambda watchers, SQS), Brain plane (FastAPI on ECS Fargate calling Azure OpenAI for classification, writing to RDS Postgres and an S3 audit bucket with Object Lock), Edge plane (ALB with WAFv2 fronting a Next.js Window app, Cognito User Pool for JWT auth, end users on the compliance team).</desc>
+
+<style>
+.th { font: 600 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+.ts { font: 400 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+.plane { fill: none; stroke: #888780; stroke-width: 0.5; stroke-dasharray: 6 4; }
+.plane-label { font: 600 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; fill: #888780; letter-spacing: 0.08em; text-transform: uppercase; }
+.arr { stroke: #5F5E5A; stroke-width: 1.5; fill: none; }
+.legend-text { font: 400 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; fill: #444441; }
+.gray-fill { fill: #F1EFE8; stroke: #5F5E5A; }
+.gray-text-h { fill: #2C2C2A; }
+.gray-text-s { fill: #444441; }
+.amber-fill { fill: #FAEEDA; stroke: #BA7517; }
+.amber-text-h { fill: #412402; }
+.amber-text-s { fill: #633806; }
+.amber-glyph { stroke: #854F0B; }
+.blue-fill { fill: #E6F1FB; stroke: #378ADD; }
+.blue-text-h { fill: #042C53; }
+.blue-text-s { fill: #0C447C; }
+.blue-glyph { stroke: #185FA5; }
+.purple-fill { fill: #EEEDFE; stroke: #7F77DD; }
+.purple-text-h { fill: #26215C; }
+.purple-text-s { fill: #3C3489; }
+.purple-glyph { stroke: #534AB7; }
+.teal-fill { fill: #E1F5EE; stroke: #1D9E75; }
+.teal-text-h { fill: #04342C; }
+.teal-text-s { fill: #085041; }
+.teal-glyph { stroke: #0F6E56; }
+@media (prefers-color-scheme: dark) {
+  .plane { stroke: #B4B2A9; }
+  .plane-label { fill: #B4B2A9; }
+  .arr { stroke: #B4B2A9; }
+  .legend-text { fill: #D3D1C7; }
+  .gray-fill { fill: #444441; stroke: #B4B2A9; }
+  .gray-text-h { fill: #F1EFE8; }
+  .gray-text-s { fill: #D3D1C7; }
+  .gray-glyph { stroke: #D3D1C7; }
+  .amber-fill { fill: #633806; stroke: #FAC775; }
+  .amber-text-h { fill: #FAEEDA; }
+  .amber-text-s { fill: #FAC775; }
+  .amber-glyph { stroke: #FAC775; }
+  .blue-fill { fill: #0C447C; stroke: #85B7EB; }
+  .blue-text-h { fill: #E6F1FB; }
+  .blue-text-s { fill: #B5D4F4; }
+  .blue-glyph { stroke: #85B7EB; }
+  .purple-fill { fill: #3C3489; stroke: #AFA9EC; }
+  .purple-text-h { fill: #EEEDFE; }
+  .purple-text-s { fill: #CECBF6; }
+  .purple-glyph { stroke: #AFA9EC; }
+  .teal-fill { fill: #085041; stroke: #5DCAA5; }
+  .teal-text-h { fill: #E1F5EE; }
+  .teal-text-s { fill: #9FE1CB; }
+  .teal-glyph { stroke: #5DCAA5; }
+}
+</style>
+
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+<path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</marker>
+</defs>
+
+<!-- PLANE 1: INGESTION -->
+<rect class="plane" x="20" y="40" width="220" height="600" rx="12"/>
+<text class="plane-label" x="130" y="32" text-anchor="middle">Ingestion plane</text>
+
+<g>
+<rect class="gray-fill" x="40" y="80" width="180" height="76" rx="8" stroke-width="0.5"/>
+<g transform="translate(58, 102)">
+<path d="M0 12 Q 8 4, 16 12" fill="none" stroke="#888780" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M-4 16 Q 8 0, 20 16" fill="none" stroke="#888780" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="8" cy="20" r="2" fill="#888780"/>
+</g>
+<text class="th gray-text-h" x="130" y="112" text-anchor="middle" dominant-baseline="central">Health Canada</text>
+<text class="ts gray-text-s" x="130" y="132" text-anchor="middle" dominant-baseline="central">3 regulatory feeds</text>
+</g>
+
+<line class="arr" x1="130" y1="156" x2="130" y2="190" marker-end="url(#arrow)"/>
+
+<g>
+<rect class="amber-fill" x="40" y="190" width="180" height="76" rx="8" stroke-width="0.5"/>
+<g transform="translate(58, 212)">
+<circle cx="10" cy="10" r="9" fill="none" class="amber-glyph" stroke-width="1.5"/>
+<line x1="10" y1="10" x2="10" y2="5" class="amber-glyph" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="10" y1="10" x2="14" y2="10" class="amber-glyph" stroke-width="1.5" stroke-linecap="round"/>
+</g>
+<text class="th amber-text-h" x="130" y="222" text-anchor="middle" dominant-baseline="central">EventBridge</text>
+<text class="ts amber-text-s" x="130" y="242" text-anchor="middle" dominant-baseline="central">30-min schedule</text>
+</g>
+
+<line class="arr" x1="130" y1="266" x2="130" y2="300" marker-end="url(#arrow)"/>
+
+<g>
+<rect class="amber-fill" x="40" y="300" width="180" height="76" rx="8" stroke-width="0.5"/>
+<text x="68" y="340" style="font: 600 24px serif;" fill="#854F0B" text-anchor="middle">λ</text>
+<text class="th amber-text-h" x="130" y="332" text-anchor="middle" dominant-baseline="central">Lambda watchers</text>
+<text class="ts amber-text-s" x="130" y="352" text-anchor="middle" dominant-baseline="central">3 ingestion fns</text>
+</g>
+
+<line class="arr" x1="130" y1="376" x2="130" y2="410" marker-end="url(#arrow)"/>
+
+<g>
+<rect class="amber-fill" x="40" y="410" width="180" height="76" rx="8" stroke-width="0.5"/>
+<g transform="translate(56, 430)">
+<rect x="0" y="0" width="28" height="6" rx="2" fill="none" class="amber-glyph" stroke-width="1.2"/>
+<rect x="0" y="10" width="28" height="6" rx="2" fill="none" class="amber-glyph" stroke-width="1.2"/>
+<rect x="0" y="20" width="28" height="6" rx="2" fill="none" class="amber-glyph" stroke-width="1.2"/>
+</g>
+<text class="th amber-text-h" x="130" y="432" text-anchor="middle" dominant-baseline="central">SQS</text>
+<text class="ts amber-text-s" x="130" y="452" text-anchor="middle" dominant-baseline="central">Queue + DLQ</text>
+</g>
+
+<line class="arr" x1="220" y1="448" x2="260" y2="448" marker-end="url(#arrow)"/>
+
+<!-- PLANE 2: BRAIN -->
+<rect class="plane" x="260" y="40" width="220" height="600" rx="12"/>
+<text class="plane-label" x="370" y="32" text-anchor="middle">Brain plane</text>
+
+<g>
+<rect class="blue-fill" x="280" y="80" width="180" height="76" rx="8" stroke-width="0.5"/>
+<g transform="translate(296, 102)">
+<path d="M10 0 L12 8 L20 10 L12 12 L10 20 L8 12 L0 10 L8 8 Z" fill="#185FA5" stroke="none"/>
+</g>
+<text class="th blue-text-h" x="370" y="112" text-anchor="middle" dominant-baseline="central">Azure OpenAI</text>
+<text class="ts blue-text-s" x="370" y="132" text-anchor="middle" dominant-baseline="central">GPT-4o classifier</text>
+</g>
+
+<line class="arr" x1="370" y1="156" x2="370" y2="190" marker-end="url(#arrow)"/>
+
+<g>
+<rect class="purple-fill" x="280" y="190" width="180" height="76" rx="8" stroke-width="0.5"/>
+<g transform="translate(298, 208)">
+<polygon points="14,0 26,7 26,21 14,28 2,21 2,7" fill="none" class="purple-glyph" stroke-width="1.5"/>
+</g>
+<text class="th purple-text-h" x="370" y="222" text-anchor="middle" dominant-baseline="central">Brain</text>
+<text class="ts purple-text-s" x="370" y="242" text-anchor="middle" dominant-baseline="central">FastAPI · ECS Fargate</text>
+</g>
+
+<line class="arr" x1="320" y1="266" x2="320" y2="300" marker-end="url(#arrow)"/>
+<line class="arr" x1="420" y1="266" x2="420" y2="300" marker-end="url(#arrow)"/>
+
+<g>
+<rect class="teal-fill" x="280" y="300" width="86" height="96" rx="8" stroke-width="0.5"/>
+<g transform="translate(307, 316)">
+<ellipse cx="16" cy="4" rx="14" ry="4" fill="none" class="teal-glyph" stroke-width="1.2"/>
+<line x1="2" y1="4" x2="2" y2="16" class="teal-glyph" stroke-width="1.2"/>
+<line x1="30" y1="4" x2="30" y2="16" class="teal-glyph" stroke-width="1.2"/>
+<ellipse cx="16" cy="16" rx="14" ry="4" fill="none" class="teal-glyph" stroke-width="1.2"/>
+<line x1="2" y1="16" x2="2" y2="28" class="teal-glyph" stroke-width="1.2"/>
+<line x1="30" y1="16" x2="30" y2="28" class="teal-glyph" stroke-width="1.2"/>
+<ellipse cx="16" cy="28" rx="14" ry="4" fill="none" class="teal-glyph" stroke-width="1.2"/>
+</g>
+<text class="th teal-text-h" x="323" y="370" text-anchor="middle" dominant-baseline="central">RDS</text>
+<text class="ts teal-text-s" x="323" y="385" text-anchor="middle" dominant-baseline="central">Multi-AZ</text>
+</g>
+
+<g>
+<rect class="teal-fill" x="374" y="300" width="86" height="96" rx="8" stroke-width="0.5"/>
+<g transform="translate(399, 316)">
+<rect x="0" y="6" width="36" height="22" rx="2" fill="none" class="teal-glyph" stroke-width="1.2"/>
+<rect x="10" y="0" width="16" height="10" rx="2" fill="none" class="teal-glyph" stroke-width="1.2"/>
+<circle cx="18" cy="18" r="3" fill="none" class="teal-glyph" stroke-width="1.2"/>
+</g>
+<text class="th teal-text-h" x="417" y="370" text-anchor="middle" dominant-baseline="central">S3 audit</text>
+<text class="ts teal-text-s" x="417" y="385" text-anchor="middle" dominant-baseline="central">Object Lock</text>
+</g>
+
+<line class="arr" x1="480" y1="228" x2="520" y2="228" marker-end="url(#arrow)"/>
+
+<!-- PLANE 3: EDGE -->
+<rect class="plane" x="500" y="40" width="160" height="600" rx="12"/>
+<text class="plane-label" x="580" y="32" text-anchor="middle">Edge plane</text>
+
+<g>
+<rect class="purple-fill" x="520" y="190" width="120" height="76" rx="8" stroke-width="0.5"/>
+<g transform="translate(540, 212)">
+<rect x="0" y="0" width="32" height="6" rx="3" fill="none" class="purple-glyph" stroke-width="1.2"/>
+<rect x="0" y="11" width="32" height="6" rx="3" fill="none" class="purple-glyph" stroke-width="1.2"/>
+<rect x="0" y="22" width="32" height="6" rx="3" fill="none" class="purple-glyph" stroke-width="1.2"/>
+</g>
+<text class="th purple-text-h" x="580" y="222" text-anchor="middle" dominant-baseline="central">ALB</text>
+<text class="ts purple-text-s" x="580" y="242" text-anchor="middle" dominant-baseline="central">WAFv2 in front</text>
+</g>
+
+<line class="arr" x1="580" y1="266" x2="580" y2="300" marker-end="url(#arrow)"/>
+
+<g>
+<rect class="purple-fill" x="520" y="300" width="120" height="76" rx="8" stroke-width="0.5"/>
+<g transform="translate(548, 322)">
+<rect x="0" y="0" width="32" height="22" rx="2" fill="none" class="purple-glyph" stroke-width="1.2"/>
+<line x1="0" y1="6" x2="32" y2="6" class="purple-glyph" stroke-width="1.2"/>
+<circle cx="4" cy="3" r="1" fill="#534AB7"/>
+<circle cx="8" cy="3" r="1" fill="#534AB7"/>
+</g>
+<text class="th purple-text-h" x="580" y="332" text-anchor="middle" dominant-baseline="central">Window</text>
+<text class="ts purple-text-s" x="580" y="352" text-anchor="middle" dominant-baseline="central">Next.js BFF</text>
+</g>
+
+<g>
+<rect class="blue-fill" x="520" y="410" width="120" height="76" rx="8" stroke-width="0.5"/>
+<g transform="translate(548, 432)">
+<circle cx="16" cy="8" r="4" fill="none" class="blue-glyph" stroke-width="1.2"/>
+<path d="M6 22 Q 16 14, 26 22" fill="none" class="blue-glyph" stroke-width="1.2"/>
+</g>
+<text class="th blue-text-h" x="580" y="442" text-anchor="middle" dominant-baseline="central">Cognito</text>
+<text class="ts blue-text-s" x="580" y="462" text-anchor="middle" dominant-baseline="central">TOTP MFA</text>
+</g>
+
+<line class="arr" x1="580" y1="410" x2="580" y2="380" marker-end="url(#arrow)" stroke-dasharray="3 3"/>
+
+<line class="arr" x1="580" y1="376" x2="580" y2="520" marker-end="url(#arrow)"/>
+
+<g>
+<rect class="gray-fill" x="520" y="520" width="120" height="76" rx="8" stroke-width="0.5"/>
+<g transform="translate(548, 542)">
+<circle cx="16" cy="8" r="4" fill="none" stroke="#5F5E5A" stroke-width="1.5"/>
+<path d="M6 22 Q 16 14, 26 22" fill="none" stroke="#5F5E5A" stroke-width="1.5"/>
+</g>
+<text class="th gray-text-h" x="580" y="552" text-anchor="middle" dominant-baseline="central">User</text>
+<text class="ts gray-text-s" x="580" y="572" text-anchor="middle" dominant-baseline="central">Compliance team</text>
+</g>
+
+<!-- Legend -->
+<g transform="translate(40, 620)">
+<text class="plane-label" x="0" y="0">Legend</text>
+<line class="arr" x1="0" y1="14" x2="24" y2="14" marker-end="url(#arrow)"/>
+<text class="legend-text" x="32" y="18">data flow</text>
+<line class="arr" x1="120" y1="14" x2="144" y2="14" stroke-dasharray="3 3" marker-end="url(#arrow)"/>
+<text class="legend-text" x="152" y="18">auth (JWT)</text>
+</g>
+
+</svg>
