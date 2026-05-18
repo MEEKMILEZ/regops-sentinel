@@ -171,3 +171,72 @@ export async function proxyToBrain<T>(
     },
   }
 }
+
+
+/**
+ * Read the signed-in user's identity claims from the Cognito ID token.
+ *
+ * Claims of interest:
+ *   - name              : display name set during sign-up (e.g. "Sarah Park")
+ *   - email             : verified email address
+ *   - custom:tenant_id  : tenant identifier (e.g. "tenant-meditech-on")
+ *   - custom:tenant_role: role within the tenant (e.g. "compliance_lead")
+ *
+ * Returns null if not signed in or the token is malformed. Callers that
+ * need to render user-specific UI should treat null as a signed-out state
+ * and either redirect to login or render a generic placeholder.
+ *
+ * The token itself is validated upstream by the Cognito SDK; this helper
+ * only extracts well-known claim names. We do NOT trust client-supplied
+ * tenant_id - the Brain enforces tenant scoping from the same claim on
+ * every request, regardless of what the UI displays.
+ */
+export type UserClaims = {
+  name: string
+  email: string
+  tenantId: string
+  tenantRole: string
+}
+
+export async function getCurrentUserClaims(): Promise<UserClaims | null> {
+  return runWithAmplifyServerContext({
+    nextServerContext: { cookies },
+    operation: async (contextSpec) => {
+      try {
+        const session = await fetchAuthSession(contextSpec)
+        const payload = session.tokens?.idToken?.payload
+        if (!payload) return null
+
+        const tenantId = (payload["custom:tenant_id"] as string) ?? ""
+        if (!tenantId) return null
+
+        return {
+          name: (payload["name"] as string) ?? "",
+          email: (payload["email"] as string) ?? "",
+          tenantId,
+          tenantRole: (payload["custom:tenant_role"] as string) ?? "",
+        }
+      } catch {
+        return null
+      }
+    },
+  })
+}
+
+
+/**
+ * Format a tenant_id like "tenant-meditech-on" into a human-readable
+ * display name like "Meditech On". Used in the sidebar and dashboard
+ * headers. We strip the "tenant-" prefix and title-case the rest.
+ *
+ * If a real tenants table with display_name becomes available, this
+ * helper can be replaced with a DB lookup without touching call sites.
+ */
+export function formatTenantDisplay(tenantId: string): string {
+  if (!tenantId) return ""
+  const stripped = tenantId.replace(/^tenant-/, "")
+  return stripped
+    .split("-")
+    .map((part) => (part.length === 0 ? part : part[0].toUpperCase() + part.slice(1)))
+    .join(" ")
+}

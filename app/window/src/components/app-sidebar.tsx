@@ -59,7 +59,7 @@ const FALLBACK_USER: SessionUser = {
   role: "Not signed in",
 }
 
-export function AppSidebar() {
+export function AppSidebar({ tenantDisplay }: { tenantDisplay: string }) {
   const pathname = usePathname()
   const router = useRouter()
   const [sessionUser, setSessionUser] =
@@ -123,7 +123,7 @@ export function AppSidebar() {
                 <div className="flex flex-col gap-0.5 leading-none">
                   <span className="font-semibold">RegOps Sentinel</span>
                   <span className="text-muted-foreground text-xs">
-                    Acme MedDev
+                    {tenantDisplay || "Loading..."}
                   </span>
                 </div>
               </Link>
