@@ -2,7 +2,11 @@ import { KpiCard } from "@/components/dashboard/kpi-card"
 import { ClassificationBreakdownChart } from "@/components/dashboard/classification-breakdown"
 import { RecentClassifications } from "@/components/dashboard/recent-classifications"
 
-import { proxyToBrain } from "@/lib/bff"
+import {
+  proxyToBrain,
+  getCurrentUserClaims,
+  formatTenantDisplay,
+} from "@/lib/bff"
 import { computeDashboardStats } from "@/lib/dashboard-stats"
 
 import type { AlertsListResponse } from "@/lib/types"
@@ -18,7 +22,18 @@ export const dynamic = "force-dynamic"
 export const revalidate = 0
 
 export default async function DashboardPage() {
-  const result = await proxyToBrain<AlertsListResponse>("/alerts")
+  // Fetch the user's identity claims and tenant-scoped alerts in
+  // parallel. Both originate from the same Cognito session cookie.
+  const [claims, result] = await Promise.all([
+    getCurrentUserClaims(),
+    proxyToBrain<AlertsListResponse>("/alerts"),
+  ])
+
+  // Derive display strings from the verified ID token. The Brain
+  // enforces tenant scoping from the same claim; the UI just reflects
+  // what the user is already authorized to see.
+  const displayName = claims?.name?.split(" ")[0].toUpperCase() ?? "there"
+  const tenantDisplay = claims ? formatTenantDisplay(claims.tenantId) : ""
 
   // Defensive: if the BFF helper failed, render an empty dashboard
   // rather than crashing the page. Auth gating already happened in the
@@ -29,7 +44,7 @@ export default async function DashboardPage() {
   return (
     <div className="flex flex-col gap-6">
       <header>
-        <h2 className="text-lg font-semibold">Welcome back, MEEK</h2>
+        <h2 className="text-lg font-semibold">Welcome back, {displayName}</h2>
         <p className="text-muted-foreground text-sm">
           Acme MedDev · 3 of 3 watchers running on a 30-minute schedule
         </p>
