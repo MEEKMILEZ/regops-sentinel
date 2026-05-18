@@ -104,7 +104,7 @@ sequenceDiagram
     participant DB as RDS Postgres
     participant S3 as S3 audit bucket
 
-    Note over W: EventBridge fires<br/>every 6 hours
+ Note over W: EventBridge fires every 6 hours
     W->>W: Pull latest items from regulator API
     W->>W: De-dupe by external_id
     W->>Q: Send new items (one SQS message per item)
@@ -112,10 +112,10 @@ sequenceDiagram
     loop For each message
         Q->>B: ReceiveMessage
         B->>DB: Lookup tenant device catalog
-        B->>AI: Classify item against catalog<br/>(RELEVANT / NEEDS_REVIEW / NOT_RELEVANT)
+ B->>AI: Classify item against catalog (RELEVANT / NEEDS_REVIEW / NOT_RELEVANT)
         AI-->>B: Classification + urgency + reasoning
         B->>DB: INSERT INTO alerts (tenant_scoped)
-        B->>S3: PUT audit blob<br/>(SSE-KMS, Object Lock retention)
+ B->>S3: PUT audit blob (SSE-KMS, Object Lock retention)
         B->>Q: DeleteMessage (only after both writes succeed)
     end
 ```
@@ -162,29 +162,29 @@ sequenceDiagram
     participant DB as RDS Postgres
     participant S3 as S3 audit bucket
 
-    Note over U,W: User clicks<br/>"Mark complete" on a row
-    U->>W: POST /api/obligations/123/complete<br/>(session cookie)
+ Note over U,W: User clicks "Mark complete" on a row
+ U->>W: POST /api/obligations/123/complete (session cookie)
 
     W->>W: Read encrypted Amplify session cookie
     W->>W: Extract Cognito ID token
-    Note over W: Token never sent to browser;<br/>server-side only
+ Note over W: Token never sent to browser; server-side only
 
-    W->>ALB: POST /obligations/123/complete<br/>Authorization: Bearer <id_token>
+ W->>ALB: POST /obligations/123/complete Authorization: Bearer <id_token>
     ALB->>B: Forward
 
     B->>C: Fetch JWKS (cached)
-    B->>B: Verify JWT signature + claims<br/>(iss, aud, exp, tenant_id)
+ B->>B: Verify JWT signature + claims (iss, aud, exp, tenant_id)
 
-    B->>DB: SELECT current row<br/>(tenant-scoped)
+ B->>DB: SELECT current row (tenant-scoped)
     DB-->>B: row snapshot (before)
-    B->>S3: PUT audit blob<br/>action=obligation_complete<br/>actor=user.sub<br/>before+after snapshots
-    Note over S3: SSE-KMS,<br/>Object Lock retention
-    B->>DB: UPDATE obligations<br/>SET status='completed',<br/>completed_at=NOW()
+ B->>S3: PUT audit blob action=obligation_complete actor=user.sub before+after snapshots
+ Note over S3: SSE-KMS, Object Lock retention
+ B->>DB: UPDATE obligations SET status='completed', completed_at=NOW()
 
     B-->>W: 200 OK + updated row
     W-->>U: 200 OK + updated row
 
-    U->>U: router.refresh()<br/>(re-fetches list)
+ U->>U: router.refresh() (re-fetches list)
 ```
 
 **What this shows.** Three notable security properties:
