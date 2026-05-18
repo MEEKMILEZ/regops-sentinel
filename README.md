@@ -6,7 +6,7 @@
 
 A regulatory intelligence platform for Canadian medical device distributors. Continuously watches Health Canada signals (recalls, drug shortages, MedEffect adverse events), classifies them with GPT-4o through Azure OpenAI, and delivers tenant-scoped alerts with an immutable audit trail.
 
-**Status:** Built and running end-to-end on AWS. All ten phases through CI/CD auto-deploy are shipped: ingestion, classification, audit log, device catalog, obligations CRUD with audit, full-text search, immutable storage, observability, weekly regulatory digest, and keyless OIDC deploys. The screenshot manifest is at 50 of 50 captures. See the phase table below for what each phase covers.
+**Status:** Built and running end-to-end on AWS. All ten phases through CI/CD auto-deploy are shipped: ingestion, classification, audit log, device catalog, obligations CRUD with audit, full-text search, immutable storage, observability, weekly regulatory digest, and keyless OIDC deploys. See the phase table below for what each phase covers.
 
 ---
 
@@ -185,6 +185,34 @@ GOVERNANCE mode (rather than COMPLIANCE) is the demo-environment choice — it a
 
 Enabling Object Lock on the existing bucket was done via an out-of-band `aws s3api put-object-lock-configuration` call rather than a Terraform-driven change. The reason: HashiCorp issue [#36529](https://github.com/hashicorp/terraform-provider-aws/issues/36529) — the AWS Terraform provider's `object_lock_enabled` argument forces bucket replacement on existing buckets, even though AWS itself supports in-place enablement via the API since November 2023. The Terraform resource for retention rules (`aws_s3_bucket_object_lock_configuration.audit`) manages the retention policy from this point forward, paired with a `lifecycle { ignore_changes = [object_lock_configuration] }` block on the bucket to prevent drift.
 
+## Selected screenshots
+
+Curated highlights from the build. The dashboard, the AI classification flow, multi-tenant isolation proof, immutable audit storage, observability, end-to-end recall lifecycle, and the weekly digest email.
+
+**Dashboard.** Real classifications from Health Canada feeds, urgency tiers, AI-filtered noise percentage.
+![Dashboard](screenshots/31-app-window-dashboard.png)
+
+**Alert detail.** The classification UX flow from list to detail page.
+![Alert detail](screenshots/33-app-window-alert-detail.png)
+
+**Obligations tracker.** Full create / edit / complete / delete on tenant-scoped regulatory obligations.
+![Obligations tracker](screenshots/34-app-window-obligation-tracker.png)
+
+**Tenant isolation.** Two users on the same brain, distinct tenants, distinct datasets. Cross-tenant queries return 404 because object existence is itself a tenant boundary.
+![Tenant isolation](screenshots/37-tenant-isolation-proof.png)
+
+**Immutable audit storage.** Audit blobs in S3 under tenant-prefixed paths, Object Lock retention applied, KMS-encrypted, versioned.
+![S3 audit blob](screenshots/27-aws-s3-audit-blob.png)
+
+**X-Ray service map.** OpenTelemetry instrumentation through the ADOT collector sidecar, spans reaching AWS X-Ray end-to-end.
+![X-Ray service map](screenshots/46-xray-service-map.png)
+
+**Health Canada recall lifecycle.** A single signal flowing from feed ingestion to classified alert in the UI.
+![End-to-end flow](screenshots/47-app-end-to-end-flow.png)
+
+**Weekly regulatory digest.** Scheduled Lambda summarizing the week's classifications, delivered through SES.
+![Weekly digest email](screenshots/48-app-weekly-digest-email.png)
+
 ## Phase status
 
 | Phase | Status |
@@ -199,15 +227,13 @@ Enabling Object Lock on the existing bucket was done via an out-of-band `aws s3a
 | 5B.2-A: Device CSV upload backend (async jobs) | Complete |
 | 5B.2-B: Device CSV upload UI (preview + progress + tab-resume) | Complete |
 | 5C: Obligations tracker + cross-table tsvector search | Complete |
-| 5C.2: Obligations create/edit UI | Pending |
+| 5C.2: Obligations create/edit UI | Complete |
 | 5D: Audit bucket hardening (Object Lock + immutability proof) | Complete |
 | 6A: CloudWatch dashboard + alarms + SNS topic (10 alarms, 6 metric, 4 composite) | Complete |
 | 6B: X-Ray distributed tracing (OpenTelemetry + ADOT collector + AwsXRayIdGenerator + BatchSpanProcessor) | Complete |
 | 7: End-to-End Demo - weekly regulatory digest email (EventBridge -> Lambda -> RDS -> SES) | Complete |
 | 8: Repo and CI/CD (GitHub Actions workflows for brain, window, terraform) | Complete |
 | 9: GitHub Actions OIDC keyless auto-deploy on push to main (no long-lived AWS credentials) | Complete |
-
-Each phase has a defined screenshot manifest entry. See [SCREENSHOTS-MANIFEST.md](SCREENSHOTS-MANIFEST.md). Capture status: 50 of 50.
 
 ## What's not done
 
@@ -216,7 +242,6 @@ Being honest about scope rather than hiding the gaps:
 - **Obligations create/edit UI** (`5C.2`). Currently the obligations tracker is read-only — you can browse the seeded set but not add or update from the UI. The backend is also read-only on this domain.
 - **Email and Slack notifications** for overdue obligations. No outbound channel; users have to look at the dashboard to know.
 - **Multi-tenant onboarding flow.** Two tenants (`tenant-acme-meddev` and `tenant-meditech-on`) are seeded directly into the database; a third would still need a Terraform change and manual Cognito user creation. No self-serve sign-up. Also: the SQS worker hardcodes `tenant_id = DEFAULT_TENANT` on writes (read-side tenant scoping is fully enforced from the JWT, but write-side multi-tenant routing is a known gap).
-- **Audit log detail page.** You can list audit events but clicking through to a single event's JSON payload is not wired (the Brain endpoint exists; the UI page isn't built).
 - **Bulk actions, filters, exports.** The tables paginate but don't filter, sort beyond default, or export to CSV/PDF.
 
 The list above is what a hiring manager should expect to see absent. It is not an exhaustive future roadmap — a real productionization would also need billing, support docs, user management, RBAC, audit-log retention tuning per customer, and a dozen other things that aren't on this project's scope.
@@ -251,7 +276,6 @@ Each is a focused writeup in `docs/troubleshooting/`:
 ```
 .
 |-- README.md                          (this file)
-|-- SCREENSHOTS-MANIFEST.md            50-screenshot capture plan (38 captured)
 |-- app/
 |   |-- brain/                         FastAPI Brain service
 |   |   |-- Dockerfile
@@ -279,10 +303,10 @@ Each is a focused writeup in `docs/troubleshooting/`:
 |-- apply-*.ps1                        phase-by-phase patch scripts
 |-- deploy-audit-endpoint.ps1          brain deploy pipeline
 |-- docs/
-|   |-- architecture/                  (placeholder for Phase 8 diagrams)
+|   |-- architecture/                  system overview SVG diagram
 |   |-- runbooks/                      (placeholder for ops runbooks)
 |   +-- troubleshooting/               numbered writeups (04, 05, 06, 07)
-|-- screenshots/                       38 of 50 captured
+|-- screenshots/                       captured during build
 +-- terraform/
     +-- environments/
         +-- dev/                       all dev infrastructure
